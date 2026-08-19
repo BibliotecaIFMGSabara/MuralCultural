@@ -62,10 +62,10 @@
     }
   }
 
-  function formatDayMonth(value) {
+  function parseCalendarDate(value) {
     const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
 
-    if (!match) return String(value || 'Data não informada');
+    if (!match) return null;
 
     const date = new Date(
       Number(match[1]),
@@ -74,9 +74,13 @@
       12
     );
 
-    if (Number.isNaN(date.getTime())) {
-      return String(value || 'Data não informada');
-    }
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function formatDayMonth(value) {
+    const date = parseCalendarDate(value);
+
+    if (!date) return String(value || 'Data não informada');
 
     const day = date.getDate() === 1 ? '1º' : String(date.getDate());
     const month = new Intl.DateTimeFormat('pt-BR', {
@@ -84,6 +88,33 @@
     }).format(date);
 
     return `${day} de ${month}`;
+  }
+
+  function formatAgendaRange(event) {
+    if (!event?.data_fim || event.data_fim === event.data) return '';
+
+    const start = parseCalendarDate(event.data);
+    const end = parseCalendarDate(event.data_fim);
+    if (!start || !end) return '';
+
+    const differentYears = start.getFullYear() !== end.getFullYear();
+    const startOptions = {
+      weekday: 'short',
+      day: '2-digit',
+      month: 'short'
+    };
+    if (differentYears) startOptions.year = 'numeric';
+
+    const startLabel = new Intl.DateTimeFormat('pt-BR', startOptions)
+      .format(start)
+      .replace(',', '');
+    const endLabel = new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    }).format(end);
+
+    return `${startLabel} a ${endLabel}`;
   }
 
   function findCurrentEvent(slide) {
@@ -127,6 +158,111 @@
     if (candidates.length === 1) return candidates[0];
 
     return candidates.find(isRegistrationPeriod) || candidates[0] || null;
+  }
+
+  function findAgendaCardEvent(card) {
+    const title = card.querySelector('.agenda-card-body > h2')?.textContent?.trim() || '';
+    if (!title || !events.length) return null;
+
+    let candidates = events.filter(event =>
+      String(event?.titulo || '').trim() === title
+    );
+    if (!candidates.length) return null;
+
+    const place = normalizeText(
+      card.querySelector('.agenda-card-place')?.textContent || ''
+    );
+
+    if (place && candidates.length > 1) {
+      const samePlace = candidates.filter(event =>
+        normalizeText([event?.local, event?.cidade].filter(Boolean).join(' • ')) === place
+      );
+      if (samePlace.length) candidates = samePlace;
+    }
+
+    return candidates[0] || null;
+  }
+
+  function applyAgendaBadgeStyle(badge, background, color = '#fff') {
+    if (!badge) return;
+    badge.style.background = background;
+    badge.style.color = color;
+    badge.style.border = '1px solid rgba(255,255,255,.14)';
+  }
+
+  function agendaCityBadgeData(cityValue) {
+    const city = normalizeText(cityValue);
+    if (city.includes('sabara')) {
+      return { label: 'Sabará', background: 'var(--city-sabara)', color: 'var(--city-text)' };
+    }
+    if (city.includes('caete')) {
+      return { label: 'Caeté', background: 'var(--city-caete)', color: 'var(--city-text)' };
+    }
+    if (city.includes('belo') || city === 'bh' || city.includes('belo horizonte')) {
+      return { label: 'BH', background: 'var(--city-bh)', color: 'var(--city-text)' };
+    }
+    return null;
+  }
+
+  function styleAgendaBadges(card, event) {
+    const badges = card.querySelector('.agenda-card-badges');
+    if (!badges || !event) return;
+
+    const items = [...badges.querySelectorAll(':scope > span')];
+    const category = items[0];
+    const free = items[1];
+    const rating = items[2];
+
+    applyAgendaBadgeStyle(category, 'var(--category)', 'var(--category-contrast)');
+    applyAgendaBadgeStyle(free, 'var(--accent)', 'var(--accent-contrast)');
+
+    if (rating) {
+      const ratingValue = normalizeText(rating.textContent);
+      let background = '#24292f';
+      let color = '#fff';
+      if (ratingValue.includes('livre')) background = '#238636';
+      else if (ratingValue.includes('10')) background = '#2563a8';
+      else if (ratingValue.includes('12')) {
+        background = '#c58a08';
+        color = '#111';
+      } else if (ratingValue.includes('14')) background = '#d96d1f';
+      else if (ratingValue.includes('16')) background = '#bd2c2c';
+      else if (ratingValue.includes('18')) background = '#24292f';
+      applyAgendaBadgeStyle(rating, background, color);
+    }
+
+    const cityData = agendaCityBadgeData(event.cidade);
+    let cityBadge = badges.querySelector('.agenda-city-badge');
+
+    if (!cityData) {
+      cityBadge?.remove();
+      return;
+    }
+
+    if (!cityBadge) {
+      cityBadge = document.createElement('span');
+      cityBadge.className = 'agenda-city-badge';
+      badges.append(cityBadge);
+    }
+
+    cityBadge.textContent = cityData.label;
+    applyAgendaBadgeStyle(cityBadge, cityData.background, cityData.color);
+  }
+
+  function enhanceAgendaCards() {
+    document.querySelectorAll('#app .agenda-card:not(.agenda-book-card)').forEach(card => {
+      const event = findAgendaCardEvent(card);
+      if (!event) return;
+
+      styleAgendaBadges(card, event);
+
+      const range = formatAgendaRange(event);
+      const date = card.querySelector('.agenda-card-date');
+      if (!range || !date) return;
+
+      const expected = `${range}${event.horario ? ` • ${event.horario}` : ''}`;
+      if (date.textContent !== expected) date.textContent = expected;
+    });
   }
 
   function appendDate(container, value) {
@@ -223,12 +359,14 @@
     updateQueued = false;
 
     const slide = document.querySelector('#app .slide');
-    if (!slide) return;
+    if (slide) {
+      replaceBlockedIframes(slide);
 
-    replaceBlockedIframes(slide);
+      const event = findCurrentEvent(slide);
+      if (event) renderRegistrationPeriod(slide, event);
+    }
 
-    const event = findCurrentEvent(slide);
-    if (event) renderRegistrationPeriod(slide, event);
+    enhanceAgendaCards();
   }
 
   function queueEnhancement() {
