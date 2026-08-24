@@ -3,6 +3,8 @@
 
   const DATA_URL = 'eventos.json';
   const BOOKS_URL = 'livros.json';
+  const COURSES_URL = 'cursos.json';
+  const CONTESTS_URL = 'concursos.json';
   const CONFIG_URL = 'configuracao-mural.json';
   const app = document.getElementById('app');
   const SCHOOL_ROTATION_SIZE = 6;
@@ -10,15 +12,26 @@
   const SLIDE_DURATION_KEY = 'mural-cultural-tempo-slides';
   const PANEL_SETTINGS_KEY = 'mural-cultural-configuracao-painel-v1';
   const PANEL_PROFILES_KEY = 'mural-cultural-perfis-painel-v1';
+  const AGENDA_BATCH_SIZE = 24;
+  const AGENDA_CONTENT_LABELS = Object.freeze({
+    events: { singular: 'evento', plural: 'eventos' },
+    books: { singular: 'livro', plural: 'livros' },
+    courses: { singular: 'curso', plural: 'cursos' },
+    contests: { singular: 'concurso', plural: 'concursos' }
+  });
   const ALLOWED_SLIDE_DURATIONS = new Set([0, 5, 8, 10, 12, 15, 20, 30]);
   const CONTENT_SUBTITLES = Object.freeze({
     evento: 'Agenda Cultural',
     livro: 'Sugestão de Leitura',
+    curso: 'Curso Online Gratuito',
     filme: 'Sugestão de Filme',
     jogo: 'Sugestão de Jogo',
     passeio: 'Sugestão de Passeio'
   });
   const template = document.getElementById('slide-template');
+  const muralCore = window.MuralCultural.core;
+  const coursesContent = window.MuralCultural.contents.courses;
+  const contestsContent = window.MuralCultural.contents.contests;
   let deferredInstallPrompt = null;
 
   // O tema original é fixo; remove preferências antigas salvas pelo seletor.
@@ -71,9 +84,13 @@
   let state = {
     data: null,
     booksData: null,
+    coursesData: null,
+    contestsData: null,
     config: null,
     allEvents: [],
     allBooks: [],
+    allCourses: [],
+    allContests: [],
     events: [],
     index: 0,
     timer: null,
@@ -83,10 +100,10 @@
     btnPlayPause: null,
     btnFilter: null,
     filterOverlay: null,
-    panelModules: { events: true, books: true },
+    panelModules: { events: true, books: true, courses: true, contests: true },
     panelEventCities: [],
     panelBookCampuses: [],
-    panelWeights: { events: 5, books: 1 },
+    panelWeights: { events: 5, books: 1, courses: 1, contests: 1 },
     filters: {
       content: 'all',
       theme: '',
@@ -109,7 +126,16 @@
     mobileSpace: '',
     mobileInstitution: '',
     mobileRegistration: '',
-    mobileBookAccess: ''
+    mobileBookAccess: '',
+    mobileContestFormation: '',
+    mobileContestUf: '',
+    mobileContestDeadline: '',
+    agendaVisibleCounts: {
+      events: AGENDA_BATCH_SIZE,
+      books: AGENDA_BATCH_SIZE,
+      courses: AGENDA_BATCH_SIZE,
+      contests: AGENDA_BATCH_SIZE
+    }
   };
 
   function normalizeText(value = '') {
@@ -520,30 +546,6 @@
       );
   }
 
-  function interleaveContents(events, books, eventWeight = 5, bookWeight = 1) {
-    if (!books.length) return events;
-    if (!events.length) return books;
-
-    const eventsPerTurn = Math.max(1, Number(eventWeight) || 5);
-    const booksPerTurn = Math.max(1, Number(bookWeight) || 1);
-    const combined = [];
-    let eventIndex = 0;
-    let bookIndex = 0;
-
-    while (eventIndex < events.length || bookIndex < books.length) {
-      for (let i = 0; i < eventsPerTurn && eventIndex < events.length; i += 1) {
-        combined.push(events[eventIndex]);
-        eventIndex += 1;
-      }
-      for (let i = 0; i < booksPerTurn && bookIndex < books.length; i += 1) {
-        combined.push(books[bookIndex]);
-        bookIndex += 1;
-      }
-    }
-
-    return combined;
-  }
-
   function hasEventFilters() {
     return Boolean(
       state.filters.theme || state.panelEventCities.length ||
@@ -561,21 +563,18 @@
   function rebuildVisibleItems() {
     const eventsEnabled = state.panelModules.events && state.config?.modulos?.eventos !== false;
     const booksEnabled = state.panelModules.books && state.config?.modulos?.livros !== false;
+    const coursesEnabled = state.panelModules.courses && state.config?.modulos?.cursos !== false;
+    const contestsEnabled = state.panelModules.contests && state.config?.modulos?.concursos !== false;
     const events = eventsEnabled ? visibleEventsForFilters() : [];
     const books = booksEnabled ? filterBooks(state.allBooks) : [];
-
-    if (eventsEnabled && booksEnabled) {
-      state.events = interleaveContents(
-        events, books, state.panelWeights.events, state.panelWeights.books
-      );
-    } else if (eventsEnabled) {
-      state.events = events;
-    } else if (booksEnabled) {
-      state.events = books;
-    } else {
-      state.events = [];
-    }
-
+    const courses = coursesEnabled ? coursesContent.sampleForPanel(state.allCourses) : [];
+    const contests = contestsEnabled ? contestsContent.sampleForPanel(state.allContests) : [];
+    state.events = muralCore.interleaveContents([
+      { items: events, weight: state.panelWeights.events },
+      { items: books, weight: state.panelWeights.books },
+      { items: courses, weight: state.panelWeights.courses },
+      { items: contests, weight: state.panelWeights.contests }
+    ]);
     return state.events;
   }
 
@@ -860,7 +859,8 @@
     const defaults = defaultPanelSettings();
     let count = 0;
     if (state.panelModules.events !== defaults.modules.events ||
-        state.panelModules.books !== defaults.modules.books) count += 1;
+        state.panelModules.books !== defaults.modules.books ||
+        state.panelModules.contests !== defaults.modules.contests) count += 1;
     if (state.filters.theme) count += 1;
     if (state.panelModules.events) {
       if (state.panelEventCities.length) count += 1;
@@ -873,7 +873,8 @@
       if (state.filters.bookAccess) count += 1;
     }
     if (state.panelWeights.events !== defaults.weights.events ||
-        state.panelWeights.books !== defaults.weights.books) count += 1;
+        state.panelWeights.books !== defaults.weights.books ||
+        state.panelWeights.contests !== defaults.weights.contests) count += 1;
     if (state.slideDuration !== defaults.slideDuration) count += 1;
     return count;
   }
@@ -1157,6 +1158,8 @@
     return ({
       evento: 'Abrir este evento',
       livro: 'Ver este livro',
+      curso: 'Abrir este curso',
+      concurso: 'Ver este concurso',
       filme: 'Ver este filme',
       jogo: 'Ver este jogo',
       passeio: 'Ver este passeio'
@@ -1205,9 +1208,12 @@
 
   function slideDurationFor(item) {
     if (state.slideDuration >= 5) return state.slideDuration;
-    const defaultSeconds = item?.tipo_conteudo === 'livro'
+    const type = String(item?.tipo_conteudo || 'evento').toLowerCase();
+    const defaultSeconds = type === 'livro'
       ? state.config?.tempo_slide?.livro
-      : state.config?.tempo_slide?.evento;
+      : type === 'concurso'
+        ? state.config?.tempo_slide?.concurso
+        : state.config?.tempo_slide?.evento;
     return Math.max(
       5,
       Number(item?.tempo_slide) ||
@@ -1757,10 +1763,84 @@
     scheduleNextSlide();
   }
 
+  function renderCourseSlide(index) {
+    clearTimeout(state.timer);
+    const course = state.events[index];
+    if (!course) return;
+
+    const slide = coursesContent.createPanelSlide({
+      course,
+      index,
+      total: state.events.length,
+      template,
+      helpers: {
+        buildSiteQr,
+        slideDurationFor,
+        configureItemQrLabel,
+        buildQr,
+        safeExternalUrl,
+        safeImageUrl
+      }
+    });
+
+    app.replaceChildren(slide);
+
+    state.btnNext = slide.querySelector('.next-btn');
+    state.btnPrev = slide.querySelector('.prev-btn');
+    state.btnPlayPause = slide.querySelector('.play-pause-btn');
+    state.btnFilter = slide.querySelector('.filter-btn');
+    state.filterOverlay = slide.querySelector('.filter-overlay');
+
+    setupControls();
+    setupFilterPanel(slide);
+    updateFilterButton();
+    updatePlayPauseButton();
+    addPanelViewToggle();
+    scheduleNextSlide();
+  }
+
+  function renderContestSlide(index) {
+    clearTimeout(state.timer);
+    const contest = state.events[index];
+    if (!contest) return;
+
+    const slide = contestsContent.createPanelSlide({
+      contest,
+      index,
+      total: state.events.length,
+      template,
+      helpers: {
+        buildSiteQr,
+        slideDurationFor,
+        configureItemQrLabel,
+        buildQr,
+        safeExternalUrl,
+        safeImageUrl
+      }
+    });
+
+    app.replaceChildren(slide);
+
+    state.btnNext = slide.querySelector('.next-btn');
+    state.btnPrev = slide.querySelector('.prev-btn');
+    state.btnPlayPause = slide.querySelector('.play-pause-btn');
+    state.btnFilter = slide.querySelector('.filter-btn');
+    state.filterOverlay = slide.querySelector('.filter-overlay');
+
+    setupControls();
+    setupFilterPanel(slide);
+    updateFilterButton();
+    updatePlayPauseButton();
+    addPanelViewToggle();
+    scheduleNextSlide();
+  }
+
   function renderSlide(index) {
     const item = state.events[index];
     if (!item) return;
     if (item.tipo_conteudo === 'livro') renderBookSlide(index);
+    else if (item.tipo_conteudo === 'curso') renderCourseSlide(index);
+    else if (item.tipo_conteudo === 'concurso') renderContestSlide(index);
     else renderEventSlide(index);
   }
 
@@ -1863,6 +1943,7 @@
     const panelModules = panel.modulos_ativos || {};
     const eventConfig = panel.eventos || {};
     const bookConfig = panel.livros || {};
+    const courseConfig = panel.cursos || {};
     const frequency = panel.frequencia || {};
     return {
       modules: {
@@ -1871,7 +1952,13 @@
           : state.config?.modulos?.eventos !== false,
         books: panelModules.livros !== undefined
           ? Boolean(panelModules.livros)
-          : state.config?.modulos?.livros !== false
+          : state.config?.modulos?.livros !== false,
+        courses: panelModules.cursos !== undefined
+          ? Boolean(panelModules.cursos)
+          : state.config?.modulos?.cursos !== false,
+        contests: panelModules.concursos !== undefined
+          ? Boolean(panelModules.concursos)
+          : state.config?.modulos?.concursos !== false
       },
       theme: String(panel.tema || ''),
       eventCities: Array.isArray(eventConfig.cidades) ? eventConfig.cidades.map(normalizeText).filter(Boolean) : [],
@@ -1882,7 +1969,9 @@
       bookAccess: String(bookConfig.acesso || ''),
       weights: {
         events: Math.max(1, Number(frequency.eventos ?? state.config?.proporcao?.eventos_por_livro) || 5),
-        books: Math.max(1, Number(frequency.livros) || 1)
+        books: Math.max(1, Number(frequency.livros) || 1),
+        courses: Math.max(1, Number(frequency.cursos) || 1),
+        contests: Math.max(1, Number(frequency.concursos) || 1)
       },
       slideDuration: ALLOWED_SLIDE_DURATIONS.has(Number(panel.tempo_slides)) ? Number(panel.tempo_slides) : 0
     };
@@ -1897,7 +1986,9 @@
     return {
       modules: {
         events: modules.events !== undefined ? Boolean(modules.events) : defaults.modules.events,
-        books: modules.books !== undefined ? Boolean(modules.books) : defaults.modules.books
+        books: modules.books !== undefined ? Boolean(modules.books) : defaults.modules.books,
+        courses: modules.courses !== undefined ? Boolean(modules.courses) : defaults.modules.courses,
+        contests: modules.contests !== undefined ? Boolean(modules.contests) : defaults.modules.contests
       },
       theme: String(value.theme || ''),
       eventCities: Array.isArray(value.eventCities) ? value.eventCities.map(normalizeText).filter(Boolean) : [],
@@ -1908,7 +1999,9 @@
       bookAccess: String(value.bookAccess || ''),
       weights: {
         events: clampWeight(weights.events ?? defaults.weights.events),
-        books: clampWeight(weights.books ?? defaults.weights.books)
+        books: clampWeight(weights.books ?? defaults.weights.books),
+        courses: clampWeight(weights.courses ?? defaults.weights.courses),
+        contests: clampWeight(weights.contests ?? defaults.weights.contests)
       },
       slideDuration: ALLOWED_SLIDE_DURATIONS.has(Number(value.slideDuration))
         ? Number(value.slideDuration)
@@ -2108,7 +2201,9 @@
   function readPanelSettingsFromOverlay(slide) {
     const eventsEnabled = Boolean(slide.querySelector('.panel-module-events')?.checked);
     const booksEnabled = Boolean(slide.querySelector('.panel-module-books')?.checked);
-    if (!eventsEnabled && !booksEnabled) {
+    const coursesEnabled = Boolean(slide.querySelector('.panel-module-courses')?.checked);
+    const contestsEnabled = Boolean(slide.querySelector('.panel-module-contests')?.checked);
+    if (!eventsEnabled && !booksEnabled && !coursesEnabled && !contestsEnabled) {
       throw new Error('Ative pelo menos um tipo de conteúdo para o painel.');
     }
 
@@ -2124,7 +2219,12 @@
     }
 
     return normalizePanelSettings({
-      modules: { events: eventsEnabled, books: booksEnabled },
+      modules: {
+        events: eventsEnabled,
+        books: booksEnabled,
+        courses: coursesEnabled,
+        contests: contestsEnabled
+      },
       theme: slide.querySelector('.filter-theme')?.value || '',
       eventCities: checkedFilterValues(cityContainer),
       eventCategory: slide.querySelector('.filter-category')?.value || '',
@@ -2134,7 +2234,9 @@
       bookAccess: slide.querySelector('.filter-book-access')?.value || '',
       weights: {
         events: slide.querySelector('.panel-event-weight')?.value || 5,
-        books: slide.querySelector('.panel-book-weight')?.value || 1
+        books: slide.querySelector('.panel-book-weight')?.value || 1,
+        courses: slide.querySelector('.panel-course-weight')?.value || 1,
+        contests: slide.querySelector('.panel-contest-weight')?.value || 1
       },
       slideDuration: slide.querySelector('.filter-slide-duration')?.value || 0
     });
@@ -2143,10 +2245,16 @@
   function updatePanelModuleVisibility(slide) {
     const eventsEnabled = Boolean(slide.querySelector('.panel-module-events')?.checked);
     const booksEnabled = Boolean(slide.querySelector('.panel-module-books')?.checked);
+    const coursesEnabled = Boolean(slide.querySelector('.panel-module-courses')?.checked);
+    const contestsEnabled = Boolean(slide.querySelector('.panel-module-contests')?.checked);
     const eventSection = slide.querySelector('.panel-event-section');
     const bookSection = slide.querySelector('.panel-book-section');
+    const courseSection = slide.querySelector('.panel-course-section');
+    const contestSection = slide.querySelector('.panel-contest-section');
     if (eventSection) eventSection.hidden = !eventsEnabled;
     if (bookSection) bookSection.hidden = !booksEnabled;
+    if (courseSection) courseSection.hidden = !coursesEnabled;
+    if (contestSection) contestSection.hidden = !contestsEnabled;
   }
 
   function populateFilterPanel(slide, settings = currentPanelSettings()) {
@@ -2160,13 +2268,21 @@
 
     const eventsToggle = slide.querySelector('.panel-module-events');
     const booksToggle = slide.querySelector('.panel-module-books');
+    const coursesToggle = slide.querySelector('.panel-module-courses');
+    const contestsToggle = slide.querySelector('.panel-module-contests');
     if (eventsToggle) eventsToggle.checked = value.modules.events;
     if (booksToggle) booksToggle.checked = value.modules.books;
+    if (coursesToggle) coursesToggle.checked = value.modules.courses;
+    if (contestsToggle) contestsToggle.checked = value.modules.contests;
     if (durationSelect) durationSelect.value = String(value.slideDuration || 0);
     const eventWeight = slide.querySelector('.panel-event-weight');
     const bookWeight = slide.querySelector('.panel-book-weight');
+    const courseWeight = slide.querySelector('.panel-course-weight');
+    const contestWeight = slide.querySelector('.panel-contest-weight');
     if (eventWeight) eventWeight.value = String(value.weights.events);
     if (bookWeight) bookWeight.value = String(value.weights.books);
+    if (courseWeight) courseWeight.value = String(value.weights.courses);
+    if (contestWeight) contestWeight.value = String(value.weights.contests);
 
     populateDynamicSelect(themeSelect, 'Todos os temas', universalThemeOptions(), value.theme);
 
@@ -2325,6 +2441,8 @@
 
     slide.querySelector('.panel-module-events')?.addEventListener('change', () => updatePanelModuleVisibility(slide));
     slide.querySelector('.panel-module-books')?.addEventListener('change', () => updatePanelModuleVisibility(slide));
+    slide.querySelector('.panel-module-courses')?.addEventListener('change', () => updatePanelModuleVisibility(slide));
+    slide.querySelector('.panel-module-contests')?.addEventListener('change', () => updatePanelModuleVisibility(slide));
     slide.querySelector('.panel-profile-save')?.addEventListener('click', () => savePanelProfile(slide));
     slide.querySelector('.panel-profile-delete')?.addEventListener('click', () => deletePanelProfile(slide));
     slide.querySelector('.panel-profile-select')?.addEventListener('change', event => {
@@ -2436,6 +2554,21 @@
       .filter(Boolean);
   }
 
+  function exclusiveAgendaEventImage(event) {
+    const explicit = [event.imagem, event.imagem_local, event.imagem_programa]
+      .map(safeImageUrl)
+      .find(Boolean);
+    if (explicit) return explicit;
+
+    if (normalizeText(event.local).includes('cine santa tereza')) {
+      return safeImageUrl('imagens/CineSantaTerezaBH.png');
+    }
+    if (normalizeText(event.programa).includes('escola livre de artes arena da cultura')) {
+      return safeImageUrl('imagens/eventos-manuais/escola-livre-de-artes.png');
+    }
+    return '';
+  }
+
   function mobileDateLabel(event) {
     const start = safeDate(event.data);
     if (!start) return event.data || 'Data não informada';
@@ -2457,13 +2590,40 @@
       const value = normalizeText(text);
       if (text && value && !values.has(value)) values.set(value, text);
     };
-    if (content !== 'books') {
+    if (content === 'events') {
       for (const event of state.allEvents) eventThemeLabels(event).forEach(add);
     }
-    if (content !== 'events') {
+    if (content === 'books') {
       for (const book of state.allBooks) (Array.isArray(book.temas) ? book.temas : []).forEach(add);
     }
     return [...values.entries()].sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'));
+  }
+
+  function normalizeAgendaFiltersForContent(content = state.mobileContent) {
+    const allowedContents = new Set(['all', 'events', 'books', 'courses', 'contests']);
+    state.mobileContent = allowedContents.has(content) ? content : 'all';
+
+    if (!['events', 'books'].includes(state.mobileContent)) {
+      state.mobileTheme = '';
+    } else {
+      const allowedThemes = new Set(agendaThemeOptions(state.mobileContent).map(([value]) => value));
+      if (state.mobileTheme && !allowedThemes.has(state.mobileTheme)) state.mobileTheme = '';
+    }
+
+    if (state.mobileContent !== 'events') {
+      state.mobilePeriod = 'all';
+      state.mobileCategory = '';
+      state.mobileCity = '';
+      state.mobileSpace = '';
+      state.mobileInstitution = '';
+      state.mobileRegistration = '';
+    }
+    if (state.mobileContent !== 'books') state.mobileBookAccess = '';
+    if (state.mobileContent !== 'contests') {
+      state.mobileContestFormation = '';
+      state.mobileContestUf = '';
+      state.mobileContestDeadline = '';
+    }
   }
 
   function agendaCategoryOptions() {
@@ -2488,7 +2648,18 @@
     );
   }
 
+  function agendaHasSpecificEventFilters() {
+    return Boolean(
+      state.mobileQuery || state.mobileTheme || state.mobilePeriod !== 'all' ||
+      state.mobileCity || state.mobileCategory || state.mobileSpace ||
+      state.mobileInstitution || state.mobileRegistration
+    );
+  }
+
   function agendaEventSource() {
+    if (state.mobileContent === 'events' && !agendaHasSpecificEventFilters()) {
+      return state.allEvents;
+    }
     return agendaUsesDetailedEventRecords()
       ? state.allEvents
       : buildDefaultEvents(state.allEvents);
@@ -2538,7 +2709,7 @@
   }
 
   function agendaVisibleEvents() {
-    if (state.mobileContent === 'books') return [];
+    if (!['all', 'events'].includes(state.mobileContent)) return [];
     const query = normalizeText(state.mobileQuery);
     const specific = state.mobileContent === 'events';
     return agendaEventSource().filter(event => {
@@ -2559,7 +2730,7 @@
   }
 
   function agendaVisibleBooks() {
-    if (state.mobileContent === 'events' || state.config?.modulos?.livros === false) return [];
+    if (!['all', 'books'].includes(state.mobileContent) || state.config?.modulos?.livros === false) return [];
     const query = normalizeText(state.mobileQuery);
     const today = todayAtMidnight();
     const specific = state.mobileContent === 'books';
@@ -2580,23 +2751,60 @@
       );
   }
 
+  function agendaVisibleCourses() {
+    if (!['all', 'courses'].includes(state.mobileContent) || state.config?.modulos?.cursos === false) return [];
+    const query = normalizeText(state.mobileQuery);
+    return coursesContent.filter(state.allCourses)
+      .filter(course => coursesContent.agendaQueryMatches(course, query, normalizeText));
+  }
+
+  function agendaVisibleContests() {
+    if (!['all', 'contests'].includes(state.mobileContent) || state.config?.modulos?.concursos === false) {
+      return [];
+    }
+    return contestsContent.filter(state.allContests, {
+      query: state.mobileQuery,
+      formation: state.mobileContent === 'contests' ? state.mobileContestFormation : '',
+      uf: state.mobileContent === 'contests' ? state.mobileContestUf : '',
+      deadline: state.mobileContent === 'contests' ? state.mobileContestDeadline : ''
+    });
+  }
+
   function agendaVisibleContents() {
     const events = agendaVisibleEvents();
     const books = agendaVisibleBooks();
-    return { events, books, total: events.length + books.length };
+    const courses = agendaVisibleCourses();
+    const contests = agendaVisibleContests();
+    return {
+      events,
+      books,
+      courses,
+      contests,
+      total: events.length + books.length + courses.length + contests.length
+    };
   }
 
   function agendaActiveFilterCount() {
-    const common = [state.mobileQuery, state.mobileTheme];
+    if (state.mobileContent === 'contests') {
+      return [
+        state.mobileQuery,
+        state.mobileContestFormation,
+        state.mobileContestUf,
+        state.mobileContestDeadline
+      ].filter(Boolean).length;
+    }
+
+    const common = [state.mobileQuery];
     if (state.mobileContent !== 'all') common.push(state.mobileContent);
     if (state.mobileContent === 'events') {
       common.push(
+        state.mobileTheme,
         state.mobilePeriod !== 'all' ? state.mobilePeriod : '',
         state.mobileCategory, state.mobileCity, state.mobileSpace,
         state.mobileInstitution, state.mobileRegistration
       );
     } else if (state.mobileContent === 'books') {
-      common.push(state.mobileBookAccess);
+      common.push(state.mobileTheme, state.mobileBookAccess);
     }
     return common.filter(Boolean).length;
   }
@@ -2612,6 +2820,16 @@
     state.mobileInstitution = '';
     state.mobileRegistration = '';
     state.mobileBookAccess = '';
+    state.mobileContestFormation = '';
+    state.mobileContestUf = '';
+    state.mobileContestDeadline = '';
+  }
+
+  function clearContestAgendaFilters() {
+    state.mobileQuery = '';
+    state.mobileContestFormation = '';
+    state.mobileContestUf = '';
+    state.mobileContestDeadline = '';
   }
 
   function mobileSelectOptions(events, field) {
@@ -2665,12 +2883,29 @@
   function agendaSubtitleLabel() {
     if (state.mobileContent === 'events') return 'Agenda Cultural';
     if (state.mobileContent === 'books') return 'Sugestão de Leitura';
+    if (state.mobileContent === 'courses') return 'Cursos Online Gratuitos';
+    if (state.mobileContent === 'contests') return 'Concursos públicos';
     return 'Descobertas culturais';
   }
 
-  function renderAgendaCard(item) {
+  function renderAgendaCard(item, options = {}) {
+    if (item.tipo_conteudo === 'concurso') {
+      return contestsContent.createAgendaCard(item, {
+        safeExternalUrl,
+        safeImageUrl
+      });
+    }
+
+    if (item.tipo_conteudo === 'curso') {
+      return coursesContent.createAgendaCard(item, {
+        safeExternalUrl,
+        safeImageUrl,
+        escapeHtml
+      });
+    }
+
     const article = document.createElement('article');
-    article.className = `agenda-card ${item.tipo_conteudo === 'livro' ? 'agenda-book-card' : ''}`;
+    article.className = `agenda-card ${item.tipo_conteudo === 'livro' ? 'agenda-book-card' : 'agenda-event-card'}`;
 
     if (item.tipo_conteudo === 'livro') {
       const holdingsHtml = agendaBookHoldingsHtml(item);
@@ -2713,8 +2948,81 @@
           ${map ? `<a class="secondary" href="${escapeHtml(map)}" target="_blank" rel="noopener noreferrer">Como chegar</a>` : ''}
         </div>
       </div>`;
-    setMobileCardImage(article.querySelector('img'), event);
+    const image = article.querySelector('img');
+    if (options.exclusiveUnfilteredEvent) {
+      const source = exclusiveAgendaEventImage(event);
+      if (source) {
+        image.src = source;
+        image.alt = `Imagem de divulgação: ${event.titulo || ''}`;
+        image.loading = 'lazy';
+        image.decoding = 'async';
+      } else {
+        image.closest('.agenda-card-media')?.remove();
+      }
+    } else {
+      setMobileCardImage(image, event);
+    }
     return article;
+  }
+
+  function resetAgendaBatches() {
+    for (const content of Object.keys(AGENDA_CONTENT_LABELS)) {
+      state.agendaVisibleCounts[content] = AGENDA_BATCH_SIZE;
+    }
+  }
+
+  function nextAgendaVisibleCount(visibleCount, total) {
+    return Math.min(visibleCount + AGENDA_BATCH_SIZE, total);
+  }
+
+  function appendAgendaCardRange(container, items, start, end, renderItem = renderAgendaCard) {
+    const fragment = document.createDocumentFragment();
+    items.slice(start, end).forEach(item => fragment.append(renderItem(item)));
+    container.append(fragment);
+  }
+
+  function createAgendaProgressiveControl(grid, items, content, renderItem = renderAgendaCard) {
+    const labels = AGENDA_CONTENT_LABELS[content];
+    const total = items.length;
+    let visibleCount = Math.min(state.agendaVisibleCounts[content], total);
+    grid.id = `agenda-grid-${content}`;
+    grid.setAttribute('aria-live', 'off');
+    appendAgendaCardRange(grid, items, 0, visibleCount, renderItem);
+
+    if (visibleCount >= total) return null;
+
+    const control = document.createElement('div');
+    control.className = 'agenda-progressive';
+    control.innerHTML = `
+      <p class="agenda-progress">Mostrando <strong>${visibleCount}</strong> de <strong>${total}</strong> ${labels.plural}</p>
+      <button type="button" class="agenda-more" aria-label="Mostrar mais ${labels.plural}" aria-controls="${grid.id}">Mostrar mais ${labels.plural}</button>
+      <p class="agenda-progress-status" role="status" aria-live="polite" aria-atomic="true"></p>
+    `;
+
+    const progress = control.querySelector('.agenda-progress');
+    const button = control.querySelector('.agenda-more');
+    const status = control.querySelector('.agenda-progress-status');
+
+    button.addEventListener('click', () => {
+      if (button.getAttribute('aria-disabled') === 'true') return;
+
+      const previousCount = visibleCount;
+      visibleCount = nextAgendaVisibleCount(previousCount, total);
+      appendAgendaCardRange(grid, items, previousCount, visibleCount, renderItem);
+      state.agendaVisibleCounts[content] = visibleCount;
+
+      progress.innerHTML = `Mostrando <strong>${visibleCount}</strong> de <strong>${total}</strong> ${labels.plural}`;
+      status.textContent = `Mais ${visibleCount - previousCount} ${labels.plural} carregados. ${visibleCount} de ${total} exibidos.`;
+
+      if (visibleCount >= total) {
+        button.textContent = `Todos os ${labels.plural} exibidos`;
+        button.setAttribute('aria-label', `Todos os ${labels.plural} estão exibidos`);
+        button.setAttribute('aria-disabled', 'true');
+        button.classList.add('is-complete');
+      }
+    });
+
+    return control;
   }
 
   function appendAgendaSection(container, title, items, contentValue, actionLabel) {
@@ -2734,8 +3042,9 @@
 
     const grid = document.createElement('div');
     grid.className = 'agenda-section-grid';
-    items.forEach(item => grid.append(renderAgendaCard(item)));
+    const progressiveControl = createAgendaProgressiveControl(grid, items, contentValue);
     section.append(heading, grid);
+    if (progressiveControl) section.append(progressiveControl);
     container.append(section);
   }
 
@@ -2744,6 +3053,8 @@
     state.isPaused = true;
     document.body.classList.add('agenda-mode');
     document.body.classList.remove('panel-mode');
+
+    normalizeAgendaFiltersForContent();
 
     const results = agendaVisibleContents();
     const activeFilters = agendaActiveFilterCount();
@@ -2765,12 +3076,26 @@
     controls.className = `agenda-tools agenda-tools-${state.mobileContent}`;
     controls.setAttribute('aria-label', 'Pesquisar e filtrar conteúdos');
 
-    const commonControls = `
-      <label class="agenda-search"><span>Pesquisar</span><input type="search" placeholder="Título, autor, instituição ou tema" value="${escapeHtml(state.mobileQuery)}"></label>
-      <label><span>Conteúdo</span><select class="agenda-content">
-        <option value="all">Todos</option><option value="events">Eventos</option><option value="books">Livros</option>
-      </select></label>
+    const contestMode = state.mobileContent === 'contests';
+    const themeMode = ['events', 'books'].includes(state.mobileContent);
+    const searchPlaceholder = contestMode
+      ? 'Órgão, cargo, cidade, formação…'
+      : state.mobileContent === 'courses'
+        ? 'Título, instituição, área ou descrição…'
+        : state.mobileContent === 'events'
+          ? 'Título, local, instituição ou tema…'
+          : state.mobileContent === 'books'
+            ? 'Título, autor ou tema…'
+            : 'Título, autor ou instituição…';
+    const themeControl = themeMode ? `
       <label><span>Tema</span><select class="agenda-theme"><option value="">Todos os temas</option></select></label>
+    ` : '';
+    const commonControls = `
+      <label class="agenda-search"><span>Pesquisar</span><input type="search" placeholder="${escapeHtml(searchPlaceholder)}" value="${escapeHtml(state.mobileQuery)}"></label>
+      <label><span>Conteúdo</span><select class="agenda-content">
+        <option value="all">Todos</option><option value="events">Eventos</option><option value="books">Livros</option><option value="courses">Cursos</option><option value="contests">Concursos</option>
+      </select></label>
+      ${themeControl}
     `;
 
     const eventControls = state.mobileContent === 'events' ? `
@@ -2796,7 +3121,16 @@
       </select></label>
     ` : '';
 
-    controls.innerHTML = commonControls + eventControls + bookControls;
+    const contestControls = contestMode ? `
+      <label><span>Formação</span><select class="agenda-contest-formation"><option value="">Todas as formações</option></select></label>
+      <label><span>UF</span><select class="agenda-contest-uf"><option value="">Todos os estados</option></select></label>
+      <label><span>Prazo</span><select class="agenda-contest-deadline">
+        <option value="">Todos os prazos</option><option value="com-data">Com data de inscrição</option>
+        <option value="sem-data">Sem data informada</option>
+      </select></label>
+    ` : '';
+
+    controls.innerHTML = commonControls + eventControls + bookControls + contestControls;
 
     controls.querySelector('.agenda-content').value = state.mobileContent;
     populateDynamicSelect(
@@ -2825,11 +3159,28 @@
       controls.querySelector('.agenda-registration').value = state.mobileRegistration;
     } else if (state.mobileContent === 'books') {
       controls.querySelector('.agenda-book-access').value = state.mobileBookAccess;
+    } else if (contestMode) {
+      populateDynamicSelect(
+        controls.querySelector('.agenda-contest-formation'),
+        'Todas as formações',
+        contestsContent.formationOptions(state.allContests),
+        state.mobileContestFormation
+      );
+      populateDynamicSelect(
+        controls.querySelector('.agenda-contest-uf'),
+        'Todos os estados',
+        contestsContent.ufOptions(state.allContests),
+        state.mobileContestUf
+      );
+      controls.querySelector('.agenda-contest-deadline').value = state.mobileContestDeadline;
     }
 
     const count = document.createElement('div');
     count.className = 'agenda-count';
-    count.innerHTML = `
+    count.innerHTML = contestMode ? `
+      <span><strong>${results.total}</strong> de ${state.allContests.length} oportunidades compatíveis com as formações acompanhadas.${activeFilters ? ` · ${activeFilters} ${activeFilters === 1 ? 'filtro ativo' : 'filtros ativos'}` : ''}</span>
+      ${activeFilters ? '<button type="button" class="agenda-clear-filters">Limpar filtros</button>' : ''}
+    ` : `
       <span><strong>${results.total}</strong> ${results.total === 1 ? 'conteúdo encontrado' : 'conteúdos encontrados'}${activeFilters ? ` · ${activeFilters} ${activeFilters === 1 ? 'filtro ativo' : 'filtros ativos'}` : ''}</span>
       ${activeFilters ? '<button type="button" class="agenda-clear-filters">Limpar filtros</button>' : ''}
     `;
@@ -2841,14 +3192,35 @@
     if (!results.total) {
       resultsContainer.innerHTML = '<div class="agenda-empty"><h2>Nenhum conteúdo encontrado</h2><p>Tente alterar a busca ou os filtros.</p></div>';
     } else if (state.mobileContent === 'all') {
-      appendAgendaSection(resultsContainer, 'Agenda Cultural', results.events, 'events', 'Ver somente eventos');
+      const eventsGrid = document.createElement('div');
+      eventsGrid.className = 'agenda-section-grid';
+      const eventsProgressiveControl = createAgendaProgressiveControl(eventsGrid, results.events, 'events');
+      resultsContainer.append(eventsGrid);
+      if (eventsProgressiveControl) resultsContainer.append(eventsProgressiveControl);
       appendAgendaSection(resultsContainer, 'Sugestões de Leitura', results.books, 'books', 'Ver somente livros');
+      appendAgendaSection(resultsContainer, 'Cursos Online Gratuitos', results.courses, 'courses', 'Ver somente cursos');
+      appendAgendaSection(resultsContainer, 'Concursos públicos', results.contests, 'contests', 'Ver somente concursos');
     } else {
       const list = document.createElement('section');
       list.className = 'agenda-list';
-      const items = state.mobileContent === 'events' ? results.events : results.books;
-      items.forEach(item => list.append(renderAgendaCard(item)));
+      const items = state.mobileContent === 'events'
+        ? results.events
+        : state.mobileContent === 'books'
+          ? results.books
+          : state.mobileContent === 'contests'
+            ? results.contests
+            : results.courses;
+      const renderItem = state.mobileContent === 'events' && !agendaHasSpecificEventFilters()
+        ? item => renderAgendaCard(item, { exclusiveUnfilteredEvent: true })
+        : renderAgendaCard;
+      const progressiveControl = createAgendaProgressiveControl(
+        list,
+        items,
+        state.mobileContent,
+        renderItem
+      );
       resultsContainer.append(list);
+      if (progressiveControl) resultsContainer.append(progressiveControl);
     }
 
     const shell = document.createElement('div');
@@ -2861,24 +3233,26 @@
     refreshInstallButtons();
 
     header.querySelector('.view-toggle').addEventListener('click', () => {
+      resetAgendaBatches();
       saveViewMode('painel');
       state.isPaused = false;
       renderCurrentView();
     });
 
-    const rerender = () => renderAgenda();
+    const rerender = () => {
+      resetAgendaBatches();
+      renderAgenda();
+    };
     controls.querySelector('.agenda-search input').addEventListener('input', event => {
       state.mobileQuery = event.target.value;
       window.clearTimeout(state.mobileSearchTimer);
       state.mobileSearchTimer = window.setTimeout(rerender, 180);
     });
     controls.querySelector('.agenda-content').addEventListener('change', event => {
-      state.mobileContent = event.target.value;
-      const allowedThemes = new Set(agendaThemeOptions(state.mobileContent).map(([value]) => value));
-      if (state.mobileTheme && !allowedThemes.has(state.mobileTheme)) state.mobileTheme = '';
+      normalizeAgendaFiltersForContent(event.target.value);
       rerender();
     });
-    controls.querySelector('.agenda-theme').addEventListener('change', event => { state.mobileTheme = event.target.value; rerender(); });
+    controls.querySelector('.agenda-theme')?.addEventListener('change', event => { state.mobileTheme = event.target.value; rerender(); });
 
     if (state.mobileContent === 'events') {
       controls.querySelector('.agenda-period').addEventListener('change', event => { state.mobilePeriod = event.target.value; rerender(); });
@@ -2889,18 +3263,21 @@
       controls.querySelector('.agenda-registration').addEventListener('change', event => { state.mobileRegistration = event.target.value; rerender(); });
     } else if (state.mobileContent === 'books') {
       controls.querySelector('.agenda-book-access').addEventListener('change', event => { state.mobileBookAccess = event.target.value; rerender(); });
+    } else if (contestMode) {
+      controls.querySelector('.agenda-contest-formation').addEventListener('change', event => { state.mobileContestFormation = event.target.value; rerender(); });
+      controls.querySelector('.agenda-contest-uf').addEventListener('change', event => { state.mobileContestUf = event.target.value; rerender(); });
+      controls.querySelector('.agenda-contest-deadline').addEventListener('change', event => { state.mobileContestDeadline = event.target.value; rerender(); });
     }
 
     count.querySelector('.agenda-clear-filters')?.addEventListener('click', () => {
-      clearAgendaFilters();
+      if (contestMode) clearContestAgendaFilters();
+      else clearAgendaFilters();
       rerender();
     });
 
     resultsContainer.querySelectorAll('.agenda-section-action').forEach(button => {
       button.addEventListener('click', () => {
-        state.mobileContent = button.dataset.content || 'all';
-        const allowedThemes = new Set(agendaThemeOptions(state.mobileContent).map(([value]) => value));
-        if (state.mobileTheme && !allowedThemes.has(state.mobileTheme)) state.mobileTheme = '';
+        normalizeAgendaFiltersForContent(button.dataset.content || 'all');
         rerender();
       });
     });
@@ -2916,6 +3293,7 @@
     button.setAttribute('aria-label', 'Abrir modo agenda');
     button.textContent = '☷';
     button.addEventListener('click', () => {
+      resetAgendaBatches();
       saveViewMode('agenda');
       renderCurrentView();
     });
@@ -2947,9 +3325,11 @@
 
   async function load() {
     try {
-      const [response, booksData, config] = await Promise.all([
+      const [response, booksData, coursesData, contestsData, config] = await Promise.all([
         fetch(`${DATA_URL}?v=${Date.now()}`, { cache: 'no-store' }),
         loadOptionalJson(BOOKS_URL, { livros: [] }),
+        loadOptionalJson(COURSES_URL, { cursos: [] }),
+        loadOptionalJson(CONTESTS_URL, { concursos: [] }),
         loadOptionalJson(CONFIG_URL, {
           nome: 'Mural Cultural',
           modulos: { eventos: true, livros: false },
@@ -2965,9 +3345,20 @@
 
       state.data = data;
       state.booksData = booksData && Array.isArray(booksData.livros) ? booksData : { livros: [] };
+      state.coursesData = coursesData && Array.isArray(coursesData.cursos) ? coursesData : { cursos: [] };
+      state.contestsData = contestsData && Array.isArray(contestsData.concursos)
+        ? contestsData
+        : { concursos: [] };
       state.config = config || {};
       state.allEvents = filterAndSort(data.eventos).map(event => ({ ...event, tipo_conteudo: 'evento' }));
       state.allBooks = (state.booksData.livros || []).map(book => ({ ...book, tipo_conteudo: 'livro' }));
+      state.allCourses = (state.coursesData.cursos || []).map(course => ({ ...course, tipo_conteudo: 'curso' }));
+      state.allContests = (state.contestsData.concursos || [])
+        .filter(contestsContent.isValid)
+        .map(contest => ({
+          ...contestsContent.publicRecord(contest),
+          tipo_conteudo: 'concurso'
+        }));
       state.schoolRotationBatch = readStoredSchoolBatch();
       loadStoredPanelSettings();
       rebuildVisibleItems();

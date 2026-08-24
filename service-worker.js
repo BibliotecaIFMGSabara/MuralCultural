@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'mural-cultural-v63.2-obras-multiacervo';
+const CACHE_VERSION = 'mural-cultural-v75-progressive-agenda';
 const CORE_CACHE = `${CACHE_VERSION}-core`;
 const DATA_CACHE = `${CACHE_VERSION}-data`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
@@ -6,10 +6,27 @@ const MAX_IMAGE_CACHE_ITEMS = 140;
 const BRAND_LOGO_PATH = '/imagens/marca/logo-mural-cultural.png';
 
 const CORE_ASSETS = [
-  './', './index.html', './css/styles.css', './css/eventos-manuais-ui.css',
-  './js/app.js', './js/eventos-manuais-ui.js', './manifest.webmanifest',
+  './', './index.html',
+  './css/styles.css?v=65',
+  './css/eventos-manuais-ui.css?v=43',
+  './css/concursos-mural.css?v=2',
+  './js/core/rotacao.js?v=1',
+  './js/conteudos/cursos.js?v=1',
+  './js/conteudos/concursos.js?v=2',
+  './js/app.js?v=75',
+  './js/eventos-manuais-ui.js?v=44',
+  './js/ios-install.js?v=1',
+  './manifest.webmanifest',
   './imagens/app-icons/icon-192.png', './imagens/app-icons/icon-512.png',
   './imagens/app-icons/apple-touch-icon.png'
+];
+
+const DATA_PATHS = [
+  '/eventos.json',
+  '/livros.json',
+  '/cursos.json',
+  '/concursos.json',
+  '/configuracao-mural.json'
 ];
 
 self.addEventListener('install', event => {
@@ -81,10 +98,14 @@ self.addEventListener('fetch', event => {
 
   if (request.mode === 'navigate') {
     event.respondWith(networkFirst(request, CORE_CACHE, './index.html', 'text/html'));
-  } else if (['/eventos.json', '/livros.json', '/configuracao-mural.json'].some(path => url.pathname.endsWith(path))) {
+  } else if (DATA_PATHS.some(path => url.pathname.endsWith(path))) {
     const fileName = url.pathname.split('/').pop();
+    // Sempre consulta a rede sem reutilizar a resposta HTTP anterior. O Cache
+    // Storage continua servindo como fallback somente quando a rede falha.
     const stableRequest = new Request(new URL(`./${fileName}`, self.registration.scope), {
-      mode: 'same-origin', credentials: 'same-origin'
+      mode: 'same-origin',
+      credentials: 'same-origin',
+      cache: 'no-store'
     });
     event.respondWith(networkFirst(stableRequest, DATA_CACHE, '', 'application/json'));
   } else if (url.pathname.endsWith(BRAND_LOGO_PATH)) {
