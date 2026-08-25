@@ -20,7 +20,7 @@ const CORE_ASSETS = [
   './js/temas-visuais.js?v=1',
   './js/eventos-manuais-ui.js?v=44',
   './js/ios-install.js?v=1',
-  './imagens/curadorias/agosto-lilas-banner.svg',
+  './imagens/curadorias/agosto-lilas-banner.png',
   './manifest.webmanifest',
   './imagens/app-icons/icon-192.png', './imagens/app-icons/icon-512.png',
   './imagens/app-icons/apple-touch-icon.png'
