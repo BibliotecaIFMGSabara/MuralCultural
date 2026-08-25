@@ -5,6 +5,7 @@
   const BOOKS_URL = 'livros.json';
   const COURSES_URL = 'cursos.json';
   const CONTESTS_URL = 'concursos.json';
+  const FILMS_URL = 'filmes.json';
   const CONFIG_URL = 'configuracao-mural.json';
   const app = document.getElementById('app');
   const SCHOOL_ROTATION_SIZE = 6;
@@ -17,7 +18,8 @@
     events: { singular: 'evento', plural: 'eventos' },
     books: { singular: 'livro', plural: 'livros' },
     courses: { singular: 'curso', plural: 'cursos' },
-    contests: { singular: 'concurso', plural: 'concursos' }
+    contests: { singular: 'concurso', plural: 'concursos' },
+    films: { singular: 'filme', plural: 'filmes' }
   });
   const ALLOWED_SLIDE_DURATIONS = new Set([0, 5, 8, 10, 12, 15, 20, 30]);
   const CONTENT_SUBTITLES = Object.freeze({
@@ -32,6 +34,7 @@
   const muralCore = window.MuralCultural.core;
   const coursesContent = window.MuralCultural.contents.courses;
   const contestsContent = window.MuralCultural.contents.contests;
+  const filmsContent = window.MuralCultural.contents.films;
   let deferredInstallPrompt = null;
 
   // O tema original é fixo; remove preferências antigas salvas pelo seletor.
@@ -86,11 +89,13 @@
     booksData: null,
     coursesData: null,
     contestsData: null,
+    filmsData: null,
     config: null,
     allEvents: [],
     allBooks: [],
     allCourses: [],
     allContests: [],
+    allFilms: [],
     events: [],
     index: 0,
     timer: null,
@@ -100,10 +105,10 @@
     btnPlayPause: null,
     btnFilter: null,
     filterOverlay: null,
-    panelModules: { events: true, books: true, courses: true, contests: true },
+    panelModules: { events: true, books: true, courses: true, contests: true, films: true },
     panelEventCities: [],
     panelBookCampuses: [],
-    panelWeights: { events: 5, books: 1, courses: 1, contests: 1 },
+    panelWeights: { events: 5, books: 1, courses: 1, contests: 1, films: 1 },
     filters: {
       content: 'all',
       theme: '',
@@ -112,7 +117,10 @@
       unit: '',
       period: 'all',
       rating: '',
-      bookAccess: ''
+      bookAccess: '',
+      filmGenre: '',
+      filmRating: '',
+      filmDuration: ''
     },
     schoolRotationBatch: 0,
     viewMode: 'auto',
@@ -130,11 +138,19 @@
     mobileContestFormation: '',
     mobileContestUf: '',
     mobileContestDeadline: '',
+    mobileFilmGenre: '',
+    mobileFilmLetter: '',
+    mobileFilmRating: '',
+    mobileFilmYearFrom: '',
+    mobileFilmYearTo: '',
+    mobileFilmDuration: '',
+    mobileFilmSort: 'title-asc',
     agendaVisibleCounts: {
       events: AGENDA_BATCH_SIZE,
       books: AGENDA_BATCH_SIZE,
       courses: AGENDA_BATCH_SIZE,
-      contests: AGENDA_BATCH_SIZE
+      contests: AGENDA_BATCH_SIZE,
+      films: AGENDA_BATCH_SIZE
     }
   };
 
@@ -565,15 +581,29 @@
     const booksEnabled = state.panelModules.books && state.config?.modulos?.livros !== false;
     const coursesEnabled = state.panelModules.courses && state.config?.modulos?.cursos !== false;
     const contestsEnabled = state.panelModules.contests && state.config?.modulos?.concursos !== false;
+    const filmsEnabled = state.panelModules.films && state.config?.modulos?.filmes !== false;
     const events = eventsEnabled ? visibleEventsForFilters() : [];
     const books = booksEnabled ? filterBooks(state.allBooks) : [];
-    const courses = coursesEnabled ? coursesContent.sampleForPanel(state.allCourses) : [];
-    const contests = contestsEnabled ? contestsContent.sampleForPanel(state.allContests) : [];
+    const themedCourses = state.filters.theme
+      ? state.allCourses.filter(course => courseMatchesTheme(course, state.filters.theme))
+      : state.allCourses;
+    const courses = coursesEnabled ? coursesContent.sampleForPanel(themedCourses) : [];
+    const contests = contestsEnabled && !state.filters.theme
+      ? contestsContent.sampleForPanel(state.allContests)
+      : [];
+    const films = filmsEnabled ? filmsContent.sampleForPanel(state.allFilms, {
+      genre: state.filters.filmGenre,
+      theme: state.filters.theme,
+      rating: state.filters.filmRating,
+      duration: state.filters.filmDuration,
+      sort: 'title-asc'
+    }, normalizeText) : [];
     state.events = muralCore.interleaveContents([
       { items: events, weight: state.panelWeights.events },
       { items: books, weight: state.panelWeights.books },
       { items: courses, weight: state.panelWeights.courses },
-      { items: contests, weight: state.panelWeights.contests }
+      { items: contests, weight: state.panelWeights.contests },
+      { items: films, weight: state.panelWeights.films }
     ]);
     return state.events;
   }
@@ -670,11 +700,13 @@
 
   function hasUserFilters() {
     return Boolean(
-      !state.panelModules.events || !state.panelModules.books ||
+      !state.panelModules.events || !state.panelModules.books || !state.panelModules.courses ||
+      !state.panelModules.contests || !state.panelModules.films ||
       state.filters.theme || state.panelEventCities.length ||
       state.filters.category || state.filters.program || state.filters.unit ||
       state.filters.rating || state.filters.period !== 'all' ||
-      state.filters.bookAccess || state.panelBookCampuses.length
+      state.filters.bookAccess || state.panelBookCampuses.length ||
+      state.filters.filmGenre || state.filters.filmRating || state.filters.filmDuration
     );
   }
 
@@ -775,6 +807,13 @@
       .some(value => value === theme || value.includes(theme));
   }
 
+  function courseMatchesTheme(course, theme) {
+    if (!theme) return true;
+    return (Array.isArray(course.temas) ? course.temas : [])
+      .map(normalizeText)
+      .some(value => value === theme || value.includes(theme));
+  }
+
   function universalThemeOptions() {
     const values = new Map();
     const add = label => {
@@ -784,6 +823,8 @@
     };
     for (const event of state.allEvents) eventThemeLabels(event).forEach(add);
     for (const book of state.allBooks) (Array.isArray(book.temas) ? book.temas : []).forEach(add);
+    for (const course of state.allCourses) (Array.isArray(course.temas) ? course.temas : []).forEach(add);
+    for (const movie of state.allFilms) (Array.isArray(movie.temas) ? movie.temas : []).forEach(add);
     return [...values.entries()].sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'));
   }
 
@@ -860,7 +901,9 @@
     let count = 0;
     if (state.panelModules.events !== defaults.modules.events ||
         state.panelModules.books !== defaults.modules.books ||
-        state.panelModules.contests !== defaults.modules.contests) count += 1;
+        state.panelModules.courses !== defaults.modules.courses ||
+        state.panelModules.contests !== defaults.modules.contests ||
+        state.panelModules.films !== defaults.modules.films) count += 1;
     if (state.filters.theme) count += 1;
     if (state.panelModules.events) {
       if (state.panelEventCities.length) count += 1;
@@ -872,9 +915,16 @@
       if (state.panelBookCampuses.length) count += 1;
       if (state.filters.bookAccess) count += 1;
     }
+    if (state.panelModules.films) {
+      if (state.filters.filmGenre) count += 1;
+      if (state.filters.filmRating) count += 1;
+      if (state.filters.filmDuration) count += 1;
+    }
     if (state.panelWeights.events !== defaults.weights.events ||
         state.panelWeights.books !== defaults.weights.books ||
-        state.panelWeights.contests !== defaults.weights.contests) count += 1;
+        state.panelWeights.courses !== defaults.weights.courses ||
+        state.panelWeights.contests !== defaults.weights.contests ||
+        state.panelWeights.films !== defaults.weights.films) count += 1;
     if (state.slideDuration !== defaults.slideDuration) count += 1;
     return count;
   }
@@ -1213,7 +1263,11 @@
       ? state.config?.tempo_slide?.livro
       : type === 'concurso'
         ? state.config?.tempo_slide?.concurso
-        : state.config?.tempo_slide?.evento;
+        : type === 'filme'
+          ? state.config?.tempo_slide?.filme
+          : type === 'curso'
+            ? state.config?.tempo_slide?.curso
+            : state.config?.tempo_slide?.evento;
     return Math.max(
       5,
       Number(item?.tempo_slide) ||
@@ -1835,12 +1889,48 @@
     scheduleNextSlide();
   }
 
+  function renderFilmSlide(index) {
+    clearTimeout(state.timer);
+    const movie = state.events[index];
+    if (!movie) return;
+
+    const slide = filmsContent.createPanelSlide({
+      movie,
+      index,
+      total: state.events.length,
+      template,
+      helpers: {
+        buildSiteQr,
+        slideDurationFor,
+        configureItemQrLabel,
+        buildQr,
+        safeExternalUrl,
+        safeImageUrl,
+        normalizeRating
+      }
+    });
+
+    app.replaceChildren(slide);
+    state.btnNext = slide.querySelector('.next-btn');
+    state.btnPrev = slide.querySelector('.prev-btn');
+    state.btnPlayPause = slide.querySelector('.play-pause-btn');
+    state.btnFilter = slide.querySelector('.filter-btn');
+    state.filterOverlay = slide.querySelector('.filter-overlay');
+    setupControls();
+    setupFilterPanel(slide);
+    updateFilterButton();
+    updatePlayPauseButton();
+    addPanelViewToggle();
+    scheduleNextSlide();
+  }
+
   function renderSlide(index) {
     const item = state.events[index];
     if (!item) return;
     if (item.tipo_conteudo === 'livro') renderBookSlide(index);
     else if (item.tipo_conteudo === 'curso') renderCourseSlide(index);
     else if (item.tipo_conteudo === 'concurso') renderContestSlide(index);
+    else if (item.tipo_conteudo === 'filme') renderFilmSlide(index);
     else renderEventSlide(index);
   }
 
@@ -1943,7 +2033,7 @@
     const panelModules = panel.modulos_ativos || {};
     const eventConfig = panel.eventos || {};
     const bookConfig = panel.livros || {};
-    const courseConfig = panel.cursos || {};
+    const filmConfig = panel.filmes || {};
     const frequency = panel.frequencia || {};
     return {
       modules: {
@@ -1958,7 +2048,10 @@
           : state.config?.modulos?.cursos !== false,
         contests: panelModules.concursos !== undefined
           ? Boolean(panelModules.concursos)
-          : state.config?.modulos?.concursos !== false
+          : state.config?.modulos?.concursos !== false,
+        films: panelModules.filmes !== undefined
+          ? Boolean(panelModules.filmes)
+          : state.config?.modulos?.filmes !== false
       },
       theme: String(panel.tema || ''),
       eventCities: Array.isArray(eventConfig.cidades) ? eventConfig.cidades.map(normalizeText).filter(Boolean) : [],
@@ -1967,11 +2060,15 @@
       eventUnit: String(eventConfig.espaco || ''),
       bookCampuses: Array.isArray(bookConfig.campi_acervos) ? bookConfig.campi_acervos.map(normalizeText).filter(Boolean) : [],
       bookAccess: String(bookConfig.acesso || ''),
+      filmGenre: String(filmConfig.genero || ''),
+      filmRating: String(filmConfig.classificacao || ''),
+      filmDuration: String(filmConfig.duracao || ''),
       weights: {
         events: Math.max(1, Number(frequency.eventos ?? state.config?.proporcao?.eventos_por_livro) || 5),
         books: Math.max(1, Number(frequency.livros) || 1),
         courses: Math.max(1, Number(frequency.cursos) || 1),
-        contests: Math.max(1, Number(frequency.concursos) || 1)
+        contests: Math.max(1, Number(frequency.concursos) || 1),
+        films: Math.max(1, Number(frequency.filmes) || 1)
       },
       slideDuration: ALLOWED_SLIDE_DURATIONS.has(Number(panel.tempo_slides)) ? Number(panel.tempo_slides) : 0
     };
@@ -1988,7 +2085,8 @@
         events: modules.events !== undefined ? Boolean(modules.events) : defaults.modules.events,
         books: modules.books !== undefined ? Boolean(modules.books) : defaults.modules.books,
         courses: modules.courses !== undefined ? Boolean(modules.courses) : defaults.modules.courses,
-        contests: modules.contests !== undefined ? Boolean(modules.contests) : defaults.modules.contests
+        contests: modules.contests !== undefined ? Boolean(modules.contests) : defaults.modules.contests,
+        films: modules.films !== undefined ? Boolean(modules.films) : defaults.modules.films
       },
       theme: String(value.theme || ''),
       eventCities: Array.isArray(value.eventCities) ? value.eventCities.map(normalizeText).filter(Boolean) : [],
@@ -1997,11 +2095,15 @@
       eventUnit: String(value.eventUnit || ''),
       bookCampuses: Array.isArray(value.bookCampuses) ? value.bookCampuses.map(normalizeText).filter(Boolean) : [],
       bookAccess: String(value.bookAccess || ''),
+      filmGenre: String(value.filmGenre || ''),
+      filmRating: String(value.filmRating || ''),
+      filmDuration: String(value.filmDuration || ''),
       weights: {
         events: clampWeight(weights.events ?? defaults.weights.events),
         books: clampWeight(weights.books ?? defaults.weights.books),
         courses: clampWeight(weights.courses ?? defaults.weights.courses),
-        contests: clampWeight(weights.contests ?? defaults.weights.contests)
+        contests: clampWeight(weights.contests ?? defaults.weights.contests),
+        films: clampWeight(weights.films ?? defaults.weights.films)
       },
       slideDuration: ALLOWED_SLIDE_DURATIONS.has(Number(value.slideDuration))
         ? Number(value.slideDuration)
@@ -2019,6 +2121,9 @@
       eventUnit: state.filters.unit,
       bookCampuses: state.panelBookCampuses,
       bookAccess: state.filters.bookAccess,
+      filmGenre: state.filters.filmGenre,
+      filmRating: state.filters.filmRating,
+      filmDuration: state.filters.filmDuration,
       weights: state.panelWeights,
       slideDuration: state.slideDuration
     });
@@ -2038,7 +2143,10 @@
       unit: value.eventUnit,
       period: 'all',
       rating: '',
-      bookAccess: value.bookAccess
+      bookAccess: value.bookAccess,
+      filmGenre: value.filmGenre,
+      filmRating: value.filmRating,
+      filmDuration: value.filmDuration
     };
     state.slideDuration = value.slideDuration;
 
@@ -2203,7 +2311,8 @@
     const booksEnabled = Boolean(slide.querySelector('.panel-module-books')?.checked);
     const coursesEnabled = Boolean(slide.querySelector('.panel-module-courses')?.checked);
     const contestsEnabled = Boolean(slide.querySelector('.panel-module-contests')?.checked);
-    if (!eventsEnabled && !booksEnabled && !coursesEnabled && !contestsEnabled) {
+    const filmsEnabled = Boolean(slide.querySelector('.panel-module-films')?.checked);
+    if (!eventsEnabled && !booksEnabled && !coursesEnabled && !contestsEnabled && !filmsEnabled) {
       throw new Error('Ative pelo menos um tipo de conteúdo para o painel.');
     }
 
@@ -2223,7 +2332,8 @@
         events: eventsEnabled,
         books: booksEnabled,
         courses: coursesEnabled,
-        contests: contestsEnabled
+        contests: contestsEnabled,
+        films: filmsEnabled
       },
       theme: slide.querySelector('.filter-theme')?.value || '',
       eventCities: checkedFilterValues(cityContainer),
@@ -2232,11 +2342,15 @@
       eventUnit: slide.querySelector('.filter-unit')?.value || '',
       bookCampuses: checkedFilterValues(campusContainer),
       bookAccess: slide.querySelector('.filter-book-access')?.value || '',
+      filmGenre: slide.querySelector('.filter-film-genre')?.value || '',
+      filmRating: slide.querySelector('.filter-film-rating')?.value || '',
+      filmDuration: slide.querySelector('.filter-film-duration')?.value || '',
       weights: {
         events: slide.querySelector('.panel-event-weight')?.value || 5,
         books: slide.querySelector('.panel-book-weight')?.value || 1,
         courses: slide.querySelector('.panel-course-weight')?.value || 1,
-        contests: slide.querySelector('.panel-contest-weight')?.value || 1
+        contests: slide.querySelector('.panel-contest-weight')?.value || 1,
+        films: slide.querySelector('.panel-film-weight')?.value || 1
       },
       slideDuration: slide.querySelector('.filter-slide-duration')?.value || 0
     });
@@ -2247,14 +2361,17 @@
     const booksEnabled = Boolean(slide.querySelector('.panel-module-books')?.checked);
     const coursesEnabled = Boolean(slide.querySelector('.panel-module-courses')?.checked);
     const contestsEnabled = Boolean(slide.querySelector('.panel-module-contests')?.checked);
+    const filmsEnabled = Boolean(slide.querySelector('.panel-module-films')?.checked);
     const eventSection = slide.querySelector('.panel-event-section');
     const bookSection = slide.querySelector('.panel-book-section');
     const courseSection = slide.querySelector('.panel-course-section');
     const contestSection = slide.querySelector('.panel-contest-section');
+    const filmSection = slide.querySelector('.panel-film-section');
     if (eventSection) eventSection.hidden = !eventsEnabled;
     if (bookSection) bookSection.hidden = !booksEnabled;
     if (courseSection) courseSection.hidden = !coursesEnabled;
     if (contestSection) contestSection.hidden = !contestsEnabled;
+    if (filmSection) filmSection.hidden = !filmsEnabled;
   }
 
   function populateFilterPanel(slide, settings = currentPanelSettings()) {
@@ -2264,25 +2381,32 @@
     const programSelect = slide.querySelector('.filter-program');
     const unitSelect = slide.querySelector('.filter-unit');
     const bookAccessSelect = slide.querySelector('.filter-book-access');
+    const filmGenreSelect = slide.querySelector('.filter-film-genre');
+    const filmRatingSelect = slide.querySelector('.filter-film-rating');
+    const filmDurationSelect = slide.querySelector('.filter-film-duration');
     const durationSelect = slide.querySelector('.filter-slide-duration');
 
     const eventsToggle = slide.querySelector('.panel-module-events');
     const booksToggle = slide.querySelector('.panel-module-books');
     const coursesToggle = slide.querySelector('.panel-module-courses');
     const contestsToggle = slide.querySelector('.panel-module-contests');
+    const filmsToggle = slide.querySelector('.panel-module-films');
     if (eventsToggle) eventsToggle.checked = value.modules.events;
     if (booksToggle) booksToggle.checked = value.modules.books;
     if (coursesToggle) coursesToggle.checked = value.modules.courses;
     if (contestsToggle) contestsToggle.checked = value.modules.contests;
+    if (filmsToggle) filmsToggle.checked = value.modules.films;
     if (durationSelect) durationSelect.value = String(value.slideDuration || 0);
     const eventWeight = slide.querySelector('.panel-event-weight');
     const bookWeight = slide.querySelector('.panel-book-weight');
     const courseWeight = slide.querySelector('.panel-course-weight');
     const contestWeight = slide.querySelector('.panel-contest-weight');
+    const filmWeight = slide.querySelector('.panel-film-weight');
     if (eventWeight) eventWeight.value = String(value.weights.events);
     if (bookWeight) bookWeight.value = String(value.weights.books);
     if (courseWeight) courseWeight.value = String(value.weights.courses);
     if (contestWeight) contestWeight.value = String(value.weights.contests);
+    if (filmWeight) filmWeight.value = String(value.weights.films);
 
     populateDynamicSelect(themeSelect, 'Todos os temas', universalThemeOptions(), value.theme);
 
@@ -2315,6 +2439,14 @@
     populateCheckboxOptions(slide.querySelector('.panel-city-options'), panelCityOptions(), value.eventCities);
     populateCheckboxOptions(slide.querySelector('.panel-campus-options'), panelCampusOptions(), value.bookCampuses);
     if (bookAccessSelect) bookAccessSelect.value = value.bookAccess;
+    populateDynamicSelect(
+      filmGenreSelect,
+      'Todos os gêneros',
+      filmsContent.options(state.allFilms, 'generos').map(label => [normalizeText(label), label]),
+      normalizeText(value.filmGenre)
+    );
+    if (filmRatingSelect) filmRatingSelect.value = value.filmRating;
+    if (filmDurationSelect) filmDurationSelect.value = value.filmDuration;
     updatePanelModuleVisibility(slide);
     showPanelValidation(slide, '');
   }
@@ -2443,6 +2575,7 @@
     slide.querySelector('.panel-module-books')?.addEventListener('change', () => updatePanelModuleVisibility(slide));
     slide.querySelector('.panel-module-courses')?.addEventListener('change', () => updatePanelModuleVisibility(slide));
     slide.querySelector('.panel-module-contests')?.addEventListener('change', () => updatePanelModuleVisibility(slide));
+    slide.querySelector('.panel-module-films')?.addEventListener('change', () => updatePanelModuleVisibility(slide));
     slide.querySelector('.panel-profile-save')?.addEventListener('click', () => savePanelProfile(slide));
     slide.querySelector('.panel-profile-delete')?.addEventListener('click', () => deletePanelProfile(slide));
     slide.querySelector('.panel-profile-select')?.addEventListener('change', event => {
@@ -2596,14 +2729,20 @@
     if (content === 'books') {
       for (const book of state.allBooks) (Array.isArray(book.temas) ? book.temas : []).forEach(add);
     }
+    if (content === 'courses') {
+      for (const course of state.allCourses) (Array.isArray(course.temas) ? course.temas : []).forEach(add);
+    }
+    if (content === 'films') {
+      for (const movie of state.allFilms) (Array.isArray(movie.temas) ? movie.temas : []).forEach(add);
+    }
     return [...values.entries()].sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'));
   }
 
   function normalizeAgendaFiltersForContent(content = state.mobileContent) {
-    const allowedContents = new Set(['all', 'events', 'books', 'courses', 'contests']);
+    const allowedContents = new Set(['all', 'events', 'books', 'courses', 'contests', 'films']);
     state.mobileContent = allowedContents.has(content) ? content : 'all';
 
-    if (!['events', 'books'].includes(state.mobileContent)) {
+    if (!['events', 'books', 'courses', 'films'].includes(state.mobileContent)) {
       state.mobileTheme = '';
     } else {
       const allowedThemes = new Set(agendaThemeOptions(state.mobileContent).map(([value]) => value));
@@ -2623,6 +2762,15 @@
       state.mobileContestFormation = '';
       state.mobileContestUf = '';
       state.mobileContestDeadline = '';
+    }
+    if (state.mobileContent !== 'films') {
+      state.mobileFilmGenre = '';
+      state.mobileFilmLetter = '';
+      state.mobileFilmRating = '';
+      state.mobileFilmYearFrom = '';
+      state.mobileFilmYearTo = '';
+      state.mobileFilmDuration = '';
+      state.mobileFilmSort = 'title-asc';
     }
   }
 
@@ -2755,11 +2903,12 @@
     if (!['all', 'courses'].includes(state.mobileContent) || state.config?.modulos?.cursos === false) return [];
     const query = normalizeText(state.mobileQuery);
     return coursesContent.filter(state.allCourses)
+      .filter(course => courseMatchesTheme(course, state.mobileTheme))
       .filter(course => coursesContent.agendaQueryMatches(course, query, normalizeText));
   }
 
   function agendaVisibleContests() {
-    if (!['all', 'contests'].includes(state.mobileContent) || state.config?.modulos?.concursos === false) {
+    if (state.mobileTheme || !['all', 'contests'].includes(state.mobileContent) || state.config?.modulos?.concursos === false) {
       return [];
     }
     return contestsContent.filter(state.allContests, {
@@ -2770,17 +2919,34 @@
     });
   }
 
+  function agendaVisibleFilms() {
+    if (!['all', 'films'].includes(state.mobileContent)) return [];
+    return filmsContent.filter(state.allFilms, {
+      query: state.mobileQuery,
+      genre: state.mobileContent === 'films' ? state.mobileFilmGenre : '',
+      theme: state.mobileContent === 'films' ? state.mobileTheme : '',
+      letter: state.mobileContent === 'films' ? state.mobileFilmLetter : '',
+      rating: state.mobileContent === 'films' ? state.mobileFilmRating : '',
+      yearFrom: state.mobileContent === 'films' ? state.mobileFilmYearFrom : '',
+      yearTo: state.mobileContent === 'films' ? state.mobileFilmYearTo : '',
+      duration: state.mobileContent === 'films' ? state.mobileFilmDuration : '',
+      sort: state.mobileContent === 'films' ? state.mobileFilmSort : 'title-asc'
+    }, normalizeText);
+  }
+
   function agendaVisibleContents() {
     const events = agendaVisibleEvents();
     const books = agendaVisibleBooks();
     const courses = agendaVisibleCourses();
     const contests = agendaVisibleContests();
+    const films = agendaVisibleFilms();
     return {
       events,
       books,
       courses,
       contests,
-      total: events.length + books.length + courses.length + contests.length
+      films,
+      total: events.length + books.length + courses.length + contests.length + films.length
     };
   }
 
@@ -2791,6 +2957,19 @@
         state.mobileContestFormation,
         state.mobileContestUf,
         state.mobileContestDeadline
+      ].filter(Boolean).length;
+    }
+    if (state.mobileContent === 'films') {
+      return [
+        state.mobileQuery,
+        state.mobileFilmGenre,
+        state.mobileTheme,
+        state.mobileFilmLetter,
+        state.mobileFilmRating,
+        state.mobileFilmYearFrom,
+        state.mobileFilmYearTo,
+        state.mobileFilmDuration,
+        state.mobileFilmSort !== 'title-asc' ? state.mobileFilmSort : ''
       ].filter(Boolean).length;
     }
 
@@ -2830,6 +3009,18 @@
     state.mobileContestFormation = '';
     state.mobileContestUf = '';
     state.mobileContestDeadline = '';
+  }
+
+  function clearFilmAgendaFilters() {
+    state.mobileQuery = '';
+    state.mobileFilmGenre = '';
+    state.mobileTheme = '';
+    state.mobileFilmLetter = '';
+    state.mobileFilmRating = '';
+    state.mobileFilmYearFrom = '';
+    state.mobileFilmYearTo = '';
+    state.mobileFilmDuration = '';
+    state.mobileFilmSort = 'title-asc';
   }
 
   function mobileSelectOptions(events, field) {
@@ -2885,10 +3076,18 @@
     if (state.mobileContent === 'books') return 'Sugestão de Leitura';
     if (state.mobileContent === 'courses') return 'Cursos Online Gratuitos';
     if (state.mobileContent === 'contests') return 'Concursos públicos';
+    if (state.mobileContent === 'films') return 'Filmes gratuitos';
     return 'Descobertas culturais';
   }
 
   function renderAgendaCard(item, options = {}) {
+    if (item.tipo_conteudo === 'filme') {
+      return filmsContent.createAgendaCard(item, {
+        escapeHtml,
+        showDetails: (movie, opener) => filmsContent.showDetails(movie, opener, escapeHtml)
+      });
+    }
+
     if (item.tipo_conteudo === 'concurso') {
       return contestsContent.createAgendaCard(item, {
         safeExternalUrl,
@@ -3025,6 +3224,26 @@
     return control;
   }
 
+  function filmSourceNotice() {
+    const source = document.createElement('p');
+    source.className = 'film-source-notice';
+    const platform = String(state.filmsData?.fonte || 'plataforma oficial').trim();
+    const site = safeExternalUrl(state.filmsData?.fonte_site);
+    source.append(document.createTextNode('Filmes disponibilizados gratuitamente pelo '));
+    if (site) {
+      const link = document.createElement('a');
+      link.href = site;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = platform;
+      source.append(link);
+    } else {
+      source.append(document.createTextNode(platform));
+    }
+    source.append(document.createTextNode('. O Mural Cultural não hospeda os vídeos.'));
+    return source;
+  }
+
   function appendAgendaSection(container, title, items, contentValue, actionLabel) {
     if (!items.length) return;
     const section = document.createElement('section');
@@ -3043,7 +3262,9 @@
     const grid = document.createElement('div');
     grid.className = 'agenda-section-grid';
     const progressiveControl = createAgendaProgressiveControl(grid, items, contentValue);
-    section.append(heading, grid);
+    section.append(heading);
+    if (contentValue === 'films') section.append(filmSourceNotice());
+    section.append(grid);
     if (progressiveControl) section.append(progressiveControl);
     container.append(section);
   }
@@ -3077,15 +3298,18 @@
     controls.setAttribute('aria-label', 'Pesquisar e filtrar conteúdos');
 
     const contestMode = state.mobileContent === 'contests';
-    const themeMode = ['events', 'books'].includes(state.mobileContent);
+    const filmMode = state.mobileContent === 'films';
+    const themeMode = ['events', 'books', 'courses', 'films'].includes(state.mobileContent);
     const searchPlaceholder = contestMode
       ? 'Órgão, cargo, cidade, formação…'
       : state.mobileContent === 'courses'
         ? 'Título, instituição, área ou descrição…'
         : state.mobileContent === 'events'
           ? 'Título, local, instituição ou tema…'
-          : state.mobileContent === 'books'
-            ? 'Título, autor ou tema…'
+        : state.mobileContent === 'books'
+          ? 'Título, autor ou tema…'
+          : filmMode
+            ? 'Título, direção, sinopse, gênero ou tema…'
             : 'Título, autor ou instituição…';
     const themeControl = themeMode ? `
       <label><span>Tema</span><select class="agenda-theme"><option value="">Todos os temas</option></select></label>
@@ -3093,7 +3317,7 @@
     const commonControls = `
       <label class="agenda-search"><span>Pesquisar</span><input type="search" placeholder="${escapeHtml(searchPlaceholder)}" value="${escapeHtml(state.mobileQuery)}"></label>
       <label><span>Conteúdo</span><select class="agenda-content">
-        <option value="all">Todos</option><option value="events">Eventos</option><option value="books">Livros</option><option value="courses">Cursos</option><option value="contests">Concursos</option>
+        <option value="all">Todos</option><option value="events">Eventos</option><option value="books">Livros</option><option value="courses">Cursos</option><option value="contests">Concursos</option><option value="films">Filmes</option>
       </select></label>
       ${themeControl}
     `;
@@ -3130,7 +3354,23 @@
       </select></label>
     ` : '';
 
-    controls.innerHTML = commonControls + eventControls + bookControls + contestControls;
+    const filmControls = filmMode ? `
+      <label><span>Gênero</span><select class="agenda-film-genre"><option value="">Todos os gêneros</option></select></label>
+      <label><span>Letra</span><select class="agenda-film-letter"><option value="">Todas as letras</option></select></label>
+      <label><span>Classificação</span><select class="agenda-film-rating">
+        <option value="">Todas as classificações</option><option value="Livre">Livre</option><option value="10">10</option><option value="12">12</option><option value="14">14</option><option value="16">16</option><option value="18">18</option><option value="Não informada">Não informada</option>
+      </select></label>
+      <label><span>Ano inicial</span><input class="agenda-film-year-from" type="number" inputmode="numeric" min="1900" max="2100" placeholder="Todos"></label>
+      <label><span>Ano final</span><input class="agenda-film-year-to" type="number" inputmode="numeric" min="1900" max="2100" placeholder="Todos"></label>
+      <label><span>Duração</span><select class="agenda-film-duration">
+        <option value="">Todas as durações</option><option value="ate-30">Até 30 min</option><option value="31-60">31 a 60 min</option><option value="mais-60">Mais de 60 min</option><option value="nao-informada">Não informada</option>
+      </select></label>
+      <label><span>Ordenar</span><select class="agenda-film-sort">
+        <option value="title-asc">Título de A a Z</option><option value="year-desc">Mais recentes</option><option value="year-asc">Mais antigos</option><option value="duration-asc">Menor duração</option><option value="duration-desc">Maior duração</option>
+      </select></label>
+    ` : '';
+
+    controls.innerHTML = commonControls + eventControls + bookControls + contestControls + filmControls;
 
     controls.querySelector('.agenda-content').value = state.mobileContent;
     populateDynamicSelect(
@@ -3173,10 +3413,30 @@
         state.mobileContestUf
       );
       controls.querySelector('.agenda-contest-deadline').value = state.mobileContestDeadline;
+    } else if (filmMode) {
+      populateDynamicSelect(
+        controls.querySelector('.agenda-film-genre'),
+        'Todos os gêneros',
+        filmsContent.options(state.allFilms, 'generos').map(value => [value, value]),
+        state.mobileFilmGenre
+      );
+      populateDynamicSelect(
+        controls.querySelector('.agenda-film-letter'),
+        'Todas as letras',
+        filmsContent.options(state.allFilms, 'letras').map(value => [value, value]),
+        state.mobileFilmLetter
+      );
+      controls.querySelector('.agenda-film-rating').value = state.mobileFilmRating;
+      controls.querySelector('.agenda-film-year-from').value = state.mobileFilmYearFrom;
+      controls.querySelector('.agenda-film-year-to').value = state.mobileFilmYearTo;
+      controls.querySelector('.agenda-film-duration').value = state.mobileFilmDuration;
+      controls.querySelector('.agenda-film-sort').value = state.mobileFilmSort;
     }
 
     const count = document.createElement('div');
     count.className = 'agenda-count';
+    count.setAttribute('role', 'status');
+    count.setAttribute('aria-live', 'polite');
     count.innerHTML = contestMode ? `
       <span><strong>${results.total}</strong> de ${state.allContests.length} oportunidades compatíveis com as formações acompanhadas.${activeFilters ? ` · ${activeFilters} ${activeFilters === 1 ? 'filtro ativo' : 'filtros ativos'}` : ''}</span>
       ${activeFilters ? '<button type="button" class="agenda-clear-filters">Limpar filtros</button>' : ''}
@@ -3190,7 +3450,7 @@
     resultsContainer.setAttribute('aria-label', 'Conteúdos culturais');
 
     if (!results.total) {
-      resultsContainer.innerHTML = '<div class="agenda-empty"><h2>Nenhum conteúdo encontrado</h2><p>Tente alterar a busca ou os filtros.</p></div>';
+      resultsContainer.innerHTML = '<div class="agenda-empty"><h2>Nenhum conteúdo encontrado</h2><p>Tente alterar a busca ou os filtros.</p><button type="button" class="agenda-empty-clear">Limpar filtros</button></div>';
     } else if (state.mobileContent === 'all') {
       const eventsGrid = document.createElement('div');
       eventsGrid.className = 'agenda-section-grid';
@@ -3200,6 +3460,7 @@
       appendAgendaSection(resultsContainer, 'Sugestões de Leitura', results.books, 'books', 'Ver somente livros');
       appendAgendaSection(resultsContainer, 'Cursos Online Gratuitos', results.courses, 'courses', 'Ver somente cursos');
       appendAgendaSection(resultsContainer, 'Concursos públicos', results.contests, 'contests', 'Ver somente concursos');
+      appendAgendaSection(resultsContainer, 'Filmes gratuitos', results.films, 'films', 'Ver somente filmes');
     } else {
       const list = document.createElement('section');
       list.className = 'agenda-list';
@@ -3209,7 +3470,9 @@
           ? results.books
           : state.mobileContent === 'contests'
             ? results.contests
-            : results.courses;
+            : state.mobileContent === 'films'
+              ? results.films
+              : results.courses;
       const renderItem = state.mobileContent === 'events' && !agendaHasSpecificEventFilters()
         ? item => renderAgendaCard(item, { exclusiveUnfilteredEvent: true })
         : renderAgendaCard;
@@ -3225,7 +3488,9 @@
 
     const shell = document.createElement('div');
     shell.className = 'agenda-shell';
-    shell.append(header, controls, count, resultsContainer);
+    shell.append(header, controls, count);
+    if (filmMode) shell.append(filmSourceNotice());
+    shell.append(resultsContainer);
     app.replaceChildren(shell);
 
     const installButton = header.querySelector('.install-app-btn');
@@ -3267,10 +3532,33 @@
       controls.querySelector('.agenda-contest-formation').addEventListener('change', event => { state.mobileContestFormation = event.target.value; rerender(); });
       controls.querySelector('.agenda-contest-uf').addEventListener('change', event => { state.mobileContestUf = event.target.value; rerender(); });
       controls.querySelector('.agenda-contest-deadline').addEventListener('change', event => { state.mobileContestDeadline = event.target.value; rerender(); });
+    } else if (filmMode) {
+      controls.querySelector('.agenda-film-genre').addEventListener('change', event => { state.mobileFilmGenre = event.target.value; rerender(); });
+      controls.querySelector('.agenda-film-letter').addEventListener('change', event => { state.mobileFilmLetter = event.target.value; rerender(); });
+      controls.querySelector('.agenda-film-rating').addEventListener('change', event => { state.mobileFilmRating = event.target.value; rerender(); });
+      controls.querySelector('.agenda-film-year-from').addEventListener('input', event => {
+        state.mobileFilmYearFrom = event.target.value;
+        window.clearTimeout(state.mobileSearchTimer);
+        state.mobileSearchTimer = window.setTimeout(rerender, 250);
+      });
+      controls.querySelector('.agenda-film-year-to').addEventListener('input', event => {
+        state.mobileFilmYearTo = event.target.value;
+        window.clearTimeout(state.mobileSearchTimer);
+        state.mobileSearchTimer = window.setTimeout(rerender, 250);
+      });
+      controls.querySelector('.agenda-film-duration').addEventListener('change', event => { state.mobileFilmDuration = event.target.value; rerender(); });
+      controls.querySelector('.agenda-film-sort').addEventListener('change', event => { state.mobileFilmSort = event.target.value; rerender(); });
     }
 
     count.querySelector('.agenda-clear-filters')?.addEventListener('click', () => {
       if (contestMode) clearContestAgendaFilters();
+      else if (filmMode) clearFilmAgendaFilters();
+      else clearAgendaFilters();
+      rerender();
+    });
+    resultsContainer.querySelector('.agenda-empty-clear')?.addEventListener('click', () => {
+      if (contestMode) clearContestAgendaFilters();
+      else if (filmMode) clearFilmAgendaFilters();
       else clearAgendaFilters();
       rerender();
     });
@@ -3325,11 +3613,12 @@
 
   async function load() {
     try {
-      const [response, booksData, coursesData, contestsData, config] = await Promise.all([
+      const [response, booksData, coursesData, contestsData, filmsData, config] = await Promise.all([
         fetch(`${DATA_URL}?v=${Date.now()}`, { cache: 'no-store' }),
         loadOptionalJson(BOOKS_URL, { livros: [] }),
         loadOptionalJson(COURSES_URL, { cursos: [] }),
         loadOptionalJson(CONTESTS_URL, { concursos: [] }),
+        loadOptionalJson(FILMS_URL, { filmes: [] }),
         loadOptionalJson(CONFIG_URL, {
           nome: 'Mural Cultural',
           modulos: { eventos: true, livros: false },
@@ -3349,6 +3638,7 @@
       state.contestsData = contestsData && Array.isArray(contestsData.concursos)
         ? contestsData
         : { concursos: [] };
+      state.filmsData = filmsData && Array.isArray(filmsData.filmes) ? filmsData : { filmes: [] };
       state.config = config || {};
       state.allEvents = filterAndSort(data.eventos).map(event => ({ ...event, tipo_conteudo: 'evento' }));
       state.allBooks = (state.booksData.livros || []).map(book => ({ ...book, tipo_conteudo: 'livro' }));
@@ -3359,6 +3649,10 @@
           ...contestsContent.publicRecord(contest),
           tipo_conteudo: 'concurso'
         }));
+      state.allFilms = (state.filmsData.filmes || []).map(movie => ({
+        ...movie,
+        tipo_conteudo: 'filme'
+      }));
       state.schoolRotationBatch = readStoredSchoolBatch();
       loadStoredPanelSettings();
       rebuildVisibleItems();
