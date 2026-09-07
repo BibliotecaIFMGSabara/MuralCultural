@@ -1,23 +1,25 @@
-const CACHE_VERSION = 'mural-cultural-v86-cursos-tema';
+const CACHE_VERSION = 'mural-cultural-v100-stylesheets-curadorias';
 const CORE_CACHE = `${CACHE_VERSION}-core`;
 const DATA_CACHE = `${CACHE_VERSION}-data`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
 const MAX_IMAGE_CACHE_ITEMS = 140;
 const BRAND_LOGO_PATH = '/imagens/marca/logo-mural-cultural.png';
+const CURATION_IMAGE_PREFIX = '/imagens/curadorias/';
 
 const CORE_ASSETS = [
   './', './index.html',
-  './css/styles.css?v=69',
+  './css/styles.css?v=71',
   './css/eventos-manuais-ui.css?v=43',
   './css/concursos-mural.css?v=2',
-  './css/temas-visuais.css?v=1',
-  './js/tema-visual-boot.js?v=1',
+  './css/temas-visuais.css?v=8',
+  './js/tema-visual-boot.js?v=3',
   './js/core/rotacao.js?v=1',
-  './js/conteudos/cursos.js?v=2',
+  './js/conteudos/cursos.js?v=3',
   './js/conteudos/concursos.js?v=2',
-  './js/conteudos/filmes.js?v=5',
-  './js/app.js?v=87',
-  './js/temas-visuais.js?v=2',
+  './js/conteudos/filmes.js?v=6',
+  './js/curadorias-site.js?v=4',
+  './js/app.js?v=91',
+  './js/temas-visuais.js?v=8',
   './js/eventos-manuais-ui.js?v=44',
   './js/ios-install.js?v=1',
   './imagens/curadorias/agosto-lilas-banner.png',
@@ -32,6 +34,7 @@ const DATA_PATHS = [
   '/cursos.json',
   '/concursos.json',
   '/filmes.json',
+  '/curadorias/index.json',
   '/configuracao-mural.json'
 ];
 
@@ -78,7 +81,7 @@ async function networkFirst(request, cacheName, fallbackUrl = '', expectedConten
   }
 }
 
-async function networkFirstBrandImage(request) {
+async function networkFirstMutableImage(request) {
   const freshRequest = new Request(request, { cache: 'no-store' });
   return networkFirst(freshRequest, IMAGE_CACHE, '', 'image/');
 }
@@ -104,23 +107,36 @@ self.addEventListener('fetch', event => {
 
   if (request.mode === 'navigate') {
     event.respondWith(networkFirst(request, CORE_CACHE, './index.html', 'text/html'));
-  } else if (DATA_PATHS.some(path => url.pathname.endsWith(path))) {
-    const fileName = url.pathname.split('/').pop();
+  } else if (
+    DATA_PATHS.some(path => url.pathname.endsWith(path)) ||
+    (url.pathname.includes('/curadorias/') && url.pathname.endsWith('.json'))
+  ) {
+    const scopePath = new URL(self.registration.scope).pathname;
+    const normalizedScope = scopePath.endsWith('/') ? scopePath : `${scopePath}/`;
+    const relativePath = url.pathname.startsWith(normalizedScope)
+      ? url.pathname.slice(normalizedScope.length)
+      : url.pathname.replace(/^\/+/, '');
     // Sempre consulta a rede sem reutilizar a resposta HTTP anterior. O Cache
     // Storage continua servindo como fallback somente quando a rede falha.
-    const stableRequest = new Request(new URL(`./${fileName}`, self.registration.scope), {
+    const stableRequest = new Request(new URL(`./${relativePath}`, self.registration.scope), {
       mode: 'same-origin',
       credentials: 'same-origin',
       cache: 'no-store'
     });
     event.respondWith(networkFirst(stableRequest, DATA_CACHE, '', 'application/json'));
-  } else if (url.pathname.endsWith(BRAND_LOGO_PATH)) {
-    // A marca pode ser trocada no repositório mantendo o mesmo nome.
-    // Busca sempre a versão da rede e usa a cópia local apenas se estiver offline.
-    event.respondWith(networkFirstBrandImage(request));
+  } else if (
+    url.pathname.endsWith(BRAND_LOGO_PATH) ||
+    url.pathname.includes(CURATION_IMAGE_PREFIX)
+  ) {
+    // Imagens mutáveis podem ser substituídas no repositório mantendo o mesmo nome.
+    // Busca sempre a versão atual da rede e usa a cópia local apenas se estiver offline.
+    event.respondWith(networkFirstMutableImage(request));
   } else if (request.destination === 'image') {
     event.respondWith(cacheFirstImage(request));
   } else if (['style', 'script', 'manifest', 'font'].includes(request.destination)) {
-    event.respondWith(networkFirst(request, CORE_CACHE));
+    const coreRequest = ['style', 'script'].includes(request.destination)
+      ? new Request(request, { cache: 'no-store' })
+      : request;
+    event.respondWith(networkFirst(coreRequest, CORE_CACHE));
   }
 });

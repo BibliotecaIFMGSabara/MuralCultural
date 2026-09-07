@@ -2,10 +2,55 @@
   'use strict';
 
   const STORAGE_KEY = 'mural:visual-theme';
-  const DEFAULT_THEME = 'agosto-lilas-glow';
   const BANNER_CLASS = 'campaign-profile-banner';
+  const HELP_BUTTON_CLASS = 'campaign-help-button';
+  const CAMPAIGN_LAYOUT_STYLE_ID = 'campaign-layout-overrides';
 
-  const THEMES = [
+  function ensureCampaignLayoutStyles() {
+    if (document.getElementById(CAMPAIGN_LAYOUT_STYLE_ID)) return;
+    const style = document.createElement('style');
+    style.id = CAMPAIGN_LAYOUT_STYLE_ID;
+    style.textContent = `
+      /* O botão acompanha a altura real do banner: mesma porcentagem e mesmos limites. */
+      html[data-visual-help="true"] body.panel-mode .media > .campaign-help-button {
+        top: calc(1.25% + clamp(64px, 14.285%, 148px) + 8px);
+      }
+
+      /* O tooltip do botão-banner fica depois do atalho de ajuda, sem disputar o mesmo espaço. */
+      html[data-visual-help="true"] body.panel-mode .campaign-profile-tooltip {
+        top: calc(100% + 60px);
+      }
+
+      /* Sem URL utilizável não deve restar quadrado, QR ou chamada de ação vazia. */
+      .qr-wrap[hidden] {
+        display: none !important;
+      }
+
+      @media (max-width: 720px) {
+        html[data-visual-help="true"] body.panel-mode .media > .campaign-help-button {
+          top: calc(1% + clamp(52px, 15%, 96px) + 8px);
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function dateKey(date = new Date()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function seasonalDefaultTheme(date = new Date()) {
+    const current = dateKey(date);
+    if (current >= '2026-08-01' && current <= '2026-08-31') return 'agosto-lilas-glow';
+    return 'padrao';
+  }
+
+  const DEFAULT_THEME = seasonalDefaultTheme();
+
+  const BASE_THEMES = [
     {
       id: 'padrao',
       label: 'Padrão',
@@ -17,6 +62,7 @@
       label: 'Agosto Lilás Glow',
       description: 'Roxo noturno, brilhos difusos e laço',
       swatch: 'is-lilas',
+      themeColor: '#120626',
       panelProfile: 'agosto-lilas-2026',
       profileLabel: 'Agosto Lilás',
       banner: {
@@ -26,9 +72,145 @@
     }
   ];
 
+  let THEMES = [...BASE_THEMES];
   const allowed = new Set(THEMES.map(theme => theme.id));
+  let selectedTheme = null;
+  let themeRegistrationVersion = 0;
+  const stylesheetLoads = new Map();
   const root = document.documentElement;
   const defaultThemeColor = document.querySelector('meta[name="theme-color"]')?.content || '#07111f';
+
+  function escapeMarkup(value) {
+    return String(value || '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[char]);
+  }
+
+  function loadCurationStylesheet(path) {
+    if (stylesheetLoads.has(path)) return stylesheetLoads.get(path);
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = path;
+    link.dataset.curationStylesheet = path;
+    const entry = { link, loaded: null, cancel: null, promise: null };
+    entry.promise = new Promise(resolve => {
+      let settled = false;
+      let timeout;
+      const finish = (loaded, warn = false) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        link.onload = null;
+        link.onerror = null;
+        entry.loaded = loaded;
+        if (!loaded) link.remove();
+        if (warn) console.warn(`Stylesheet de curadoria indisponível: ${path}; tema não registrado.`);
+        resolve(loaded);
+      };
+      entry.cancel = () => finish(false);
+      link.onload = () => finish(true);
+      link.onerror = () => finish(false, true);
+      timeout = setTimeout(() => finish(false, true), 10000);
+    });
+    stylesheetLoads.set(path, entry);
+    document.head.appendChild(link);
+    return entry;
+  }
+
+  function registerLoadedThemes() {
+    const curations = window.MuralCultural?.loadedCurations;
+    if (!Array.isArray(curations)) return;
+    const version = ++themeRegistrationVersion;
+    const nextThemes = [...BASE_THEMES];
+    const ids = new Set(nextThemes.map(theme => theme.id));
+    for (const curation of curations) {
+      const profile = curation?.perfil_visual;
+      if (!profile || typeof profile !== 'object' || Array.isArray(profile) || !curation.id) continue;
+      const id = String(profile.id || '');
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(id) || ids.has(id)) continue;
+      let stylesheet = '';
+      if (profile.stylesheet !== undefined) {
+        const curationId = String(curation.id);
+        if (!/^[a-z0-9][a-z0-9-]*$/.test(curationId) ||
+            profile.stylesheet !== `css/curadorias/${curationId}.css`) {
+          console.warn(`Stylesheet inválido para a curadoria ${curationId}; tema não registrado.`);
+          continue;
+        }
+        stylesheet = profile.stylesheet;
+      }
+      let banner = null;
+      if (profile.banner?.src) {
+        try {
+          const url = new URL(profile.banner.src, window.location.href);
+          if (['http:', 'https:'].includes(url.protocol)) {
+            banner = { src: url.href, alt: String(profile.banner.alt || curation.nome || '') };
+          }
+        } catch (_) {}
+      }
+      nextThemes.push({
+        id,
+        label: String(profile.label || curation.nome || id),
+        description: String(profile.description || ''),
+        swatch: /^[a-z][a-z0-9-]*$/.test(profile.swatch || '') ? profile.swatch : 'is-default',
+        panelProfile: curation.perfil_painel ? String(curation.id) : '',
+        profileLabel: String(profile.profileLabel || curation.nome || ''),
+        helpLabel: String(profile.helpLabel || ''),
+        themeColor: String(profile.themeColor || defaultThemeColor),
+        banner,
+        stylesheet,
+        auto_ativar: profile.auto_ativar === true,
+        start: String(curation.ativo_de || ''),
+        end: String(curation.ativo_ate || '')
+      });
+      ids.add(id);
+    }
+    const paths = new Set(nextThemes.map(theme => theme.stylesheet).filter(Boolean));
+    for (const [path, entry] of stylesheetLoads) {
+      if (paths.has(path)) continue;
+      entry.cancel();
+      entry.link.remove();
+      stylesheetLoads.delete(path);
+    }
+    const refresh = () => {
+      if (version !== themeRegistrationVersion) return;
+      const ready = nextThemes.filter(theme => !theme.stylesheet || stylesheetLoads.get(theme.stylesheet)?.loaded === true);
+      const pending = new Set(nextThemes.filter(theme => theme.stylesheet &&
+        stylesheetLoads.get(theme.stylesheet)?.loaded === null).map(theme => theme.id));
+      updateRegisteredThemes(ready, pending);
+    };
+    for (const path of paths) {
+      const entry = loadCurationStylesheet(path);
+      if (entry.loaded === null) entry.promise.then(refresh);
+    }
+    refresh();
+  }
+
+  function updateRegisteredThemes(nextThemes, pending = new Set()) {
+    THEMES = nextThemes;
+    allowed.clear();
+    THEMES.forEach(theme => allowed.add(theme.id));
+    const current = dateKey();
+    const automatic = THEMES.find(theme => theme.auto_ativar &&
+      /^\d{4}-\d{2}-\d{2}$/.test(theme.start) && /^\d{4}-\d{2}-\d{2}$/.test(theme.end) &&
+      current >= theme.start && current <= theme.end
+    );
+    let next = automatic?.id || DEFAULT_THEME;
+    let saved = selectedTheme;
+    try { saved = saved || localStorage.getItem(STORAGE_KEY); } catch (_) {}
+    if (saved) {
+      next = allowed.has(saved) ? saved : 'padrao';
+      if (!allowed.has(saved) && !pending.has(saved)) {
+        selectedTheme = 'padrao';
+        try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+      }
+    }
+    // Reconstrói apenas as opções; listeners e estado aberto do seletor são preservados.
+    const panel = document.getElementById('visual-theme-panel');
+    const toggle = document.querySelector('.visual-theme-toggle');
+    if (panel && toggle) populateThemeOptions(panel.querySelector('.visual-theme-options'), panel, toggle);
+    document.querySelectorAll(`.${BANNER_CLASS}`).forEach(banner => banner.remove());
+    applyTheme(next, { persist: false });
+  }
 
   function readTheme() {
     const current = root.dataset.visualTheme;
@@ -41,13 +223,15 @@
   }
 
   function persistTheme(theme) {
-    try { localStorage.setItem(STORAGE_KEY, theme); } catch (_) {}
+    try {
+      localStorage.setItem(STORAGE_KEY, theme);
+    } catch (_) {}
   }
 
   function updateBrowserColor(theme) {
     const meta = document.querySelector('meta[name="theme-color"]');
     if (!meta) return;
-    meta.content = theme === 'agosto-lilas-glow' ? '#120626' : defaultThemeColor;
+    meta.content = THEMES.find(item => item.id === theme)?.themeColor || defaultThemeColor;
   }
 
   function activePanelProfile() {
@@ -78,11 +262,11 @@
 
     banner = document.createElement('button');
     banner.type = 'button';
-    banner.className = `${BANNER_CLASS} campaign-agosto-lilas-badge`;
+    banner.className = `${BANNER_CLASS} campaign-profile-badge campaign-${theme.id}-badge`;
     banner.dataset.panelProfile = theme.panelProfile;
     banner.dataset.profileLabel = theme.profileLabel;
     banner.innerHTML = `
-      <img class="campaign-profile-banner-image" src="${theme.banner.src}" alt="${theme.banner.alt}" decoding="async">
+      <img class="campaign-profile-banner-image" src="${escapeMarkup(theme.banner.src)}" alt="${escapeMarkup(theme.banner.alt)}" decoding="async">
       <span class="campaign-profile-check" aria-hidden="true">✓</span>
       <span class="campaign-profile-tooltip" role="tooltip"></span>`;
     const togglePanelProfile = () => {
@@ -113,6 +297,40 @@
     });
   }
 
+  function syncHelpButton(theme) {
+    const themeConfig = THEMES.find(item => item.id === theme);
+    const available = Boolean(
+      themeConfig?.helpLabel && themeConfig.panelProfile &&
+      root.dataset.siteCurationHelp === themeConfig.panelProfile
+    );
+    root.dataset.visualHelp = String(available);
+    let button = document.querySelector(`.${HELP_BUTTON_CLASS}`);
+    if (!available) {
+      button?.remove();
+      return;
+    }
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.className = HELP_BUTTON_CLASS;
+      button.addEventListener('click', () => {
+        window.dispatchEvent(new CustomEvent('mural:support-help-request', {
+          detail: { opener: button }
+        }));
+      });
+    }
+    const bannerMedia = document.querySelector(`.${BANNER_CLASS}`)?.closest('.media');
+    const container = bannerMedia || document.body;
+    if (button.parentElement !== container) container.appendChild(button);
+    button.textContent = themeConfig.helpLabel;
+    button.setAttribute('aria-label', `${themeConfig.helpLabel} — ${themeConfig.profileLabel || themeConfig.label}`);
+  }
+
+  function syncThemeExperience(theme) {
+    syncBanner(theme);
+    syncHelpButton(theme);
+  }
+
   function syncOptions(theme) {
     document.querySelectorAll('[data-visual-theme-option]').forEach(button => {
       button.setAttribute('aria-pressed', String(button.dataset.visualThemeOption === theme));
@@ -122,10 +340,13 @@
   function applyTheme(theme, { persist = true } = {}) {
     const next = allowed.has(theme) ? theme : DEFAULT_THEME;
     root.dataset.visualTheme = next;
-    if (persist) persistTheme(next);
+    if (persist) {
+      selectedTheme = next;
+      persistTheme(next);
+    }
     updateBrowserColor(next);
     syncOptions(next);
-    syncBanner(next);
+    syncThemeExperience(next);
     window.dispatchEvent(new CustomEvent('mural:visual-theme-change', { detail: { theme: next } }));
   }
 
@@ -138,6 +359,31 @@
         <circle cx="14.2" cy="7" r="1"></circle>
         <circle cx="16.5" cy="10.2" r="1"></circle>
       </svg>`;
+  }
+
+  function populateThemeOptions(options, panel, toggle) {
+    options.replaceChildren();
+    THEMES.forEach(theme => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'visual-theme-option';
+      button.dataset.visualThemeOption = theme.id;
+      button.setAttribute('aria-pressed', 'false');
+      button.innerHTML = `
+        <span class="visual-theme-swatch ${escapeMarkup(theme.swatch)}" aria-hidden="true"></span>
+        <span class="visual-theme-option-copy">
+          <span class="visual-theme-option-title">${escapeMarkup(theme.label)}</span>
+          <span class="visual-theme-option-description">${escapeMarkup(theme.description)}</span>
+        </span>
+        <span class="visual-theme-check" aria-hidden="true">✓</span>`;
+      button.addEventListener('click', () => {
+        applyTheme(theme.id);
+        panel.hidden = true;
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.focus();
+      });
+      options.appendChild(button);
+    });
   }
 
   function buildSwitcher() {
@@ -166,27 +412,7 @@
       <div class="visual-theme-options"></div>`;
 
     const options = panel.querySelector('.visual-theme-options');
-    THEMES.forEach(theme => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'visual-theme-option';
-      button.dataset.visualThemeOption = theme.id;
-      button.setAttribute('aria-pressed', 'false');
-      button.innerHTML = `
-        <span class="visual-theme-swatch ${theme.swatch}" aria-hidden="true"></span>
-        <span class="visual-theme-option-copy">
-          <span class="visual-theme-option-title">${theme.label}</span>
-          <span class="visual-theme-option-description">${theme.description}</span>
-        </span>
-        <span class="visual-theme-check" aria-hidden="true">✓</span>`;
-      button.addEventListener('click', () => {
-        applyTheme(theme.id);
-        panel.hidden = true;
-        toggle.setAttribute('aria-expanded', 'false');
-        toggle.focus();
-      });
-      options.appendChild(button);
-    });
+    populateThemeOptions(options, panel, toggle);
 
     toggle.addEventListener('click', () => {
       const open = panel.hidden;
@@ -220,18 +446,21 @@
       scheduled = false;
       const theme = readTheme();
       syncOptions(theme);
-      syncBanner(theme);
+      syncThemeExperience(theme);
     });
   }
 
   const observer = new MutationObserver(scheduleSync);
 
+  window.addEventListener('mural:curations-loaded', registerLoadedThemes);
   window.addEventListener('mural:panel-profile-change', scheduleSync);
+  window.addEventListener('mural:site-curation-change', scheduleSync);
 
   function start() {
+    ensureCampaignLayoutStyles();
     buildSwitcher();
-    const theme = readTheme();
-    applyTheme(theme, { persist: false });
+    if (Array.isArray(window.MuralCultural?.loadedCurations)) registerLoadedThemes();
+    else applyTheme(readTheme(), { persist: false });
 
     observer.observe(document.body, {
       childList: true,

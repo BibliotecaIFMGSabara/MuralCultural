@@ -265,7 +265,7 @@ html[data-visual-theme="agosto-lilas-glow"] body.agenda-mode {
 }
 
 /* O tema controla a visibilidade; o perfil editorial controla somente o estado selecionado. */
-.campaign-agosto-lilas-badge {
+.campaign-profile-badge {
   position: absolute;
   top: 1.25%;
   left: 50%;
@@ -369,16 +369,150 @@ html[data-visual-theme="agosto-lilas-glow"] .visual-theme-panel {
   background: linear-gradient(145deg, rgba(28, 8, 57, .96), rgba(9, 5, 25, .97));
 }
 
+
+.campaign-help-button {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 94;
+  min-height: 44px;
+  padding: 10px 15px;
+  border: 1px solid rgba(255, 226, 122, .48);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #d6a900, #f5c518);
+  color: #151308;
+  font: 800 13px/1.2 system-ui, sans-serif;
+  box-shadow: 0 9px 28px rgba(0, 0, 0, .34);
+  cursor: pointer;
+}
+
+.campaign-help-button:hover { background: #ffe27a; }
+.media > .campaign-help-button {
+  position: absolute;
+  top: calc(1.25% + min(14.285%, 64px) + 8px);
+  right: auto;
+  left: 50%;
+  z-index: 7;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.campaign-help-button:focus-visible {
+  outline: 3px solid #fffdf5;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px #151308, 0 9px 28px rgba(0, 0, 0, .34);
+}
+.support-help-close:focus-visible,
+.support-help-dialog a:focus-visible,
+.support-card-action:focus-visible {
+  outline: 3px solid #ffe27a;
+  outline-offset: 3px;
+}
+
+.support-help-dialog {
+  width: min(920px, calc(100vw - 24px));
+  max-height: min(88vh, 900px);
+  padding: 0;
+  border: 1px solid rgba(245, 197, 24, .42);
+  border-radius: 22px;
+  background: #151308;
+  color: #fffdf5;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .68);
+}
+
+.support-help-dialog::backdrop { background: rgba(3, 3, 2, .78); backdrop-filter: blur(5px); }
+.support-help-shell { padding: clamp(18px, 3vw, 34px); overflow: auto; max-height: inherit; }
+.support-help-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.support-help-header h2 { margin: 4px 0 8px; font-size: clamp(27px, 5vw, 45px); }
+.support-help-eyebrow { margin: 0; color: #ffe27a; font-weight: 800; }
+.support-help-intro { max-width: 70ch; margin: 0; color: #e5ddba; line-height: 1.55; }
+.support-help-close {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(255, 226, 122, .34);
+  border-radius: 50%;
+  background: rgba(245, 197, 24, .10);
+  color: #fffdf5;
+  font: 500 28px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+.support-help-emergency {
+  margin: 22px 0;
+  padding: 16px 18px;
+  border: 1px solid rgba(255, 226, 122, .45);
+  border-radius: 16px;
+  background: rgba(245, 197, 24, .09);
+}
+.support-help-emergency h3 { margin: 0 0 6px; color: #ffe27a; }
+.support-help-emergency p { margin: 0 0 8px; line-height: 1.5; }
+.support-help-dialog a { color: #ffe27a; font-weight: 750; text-underline-offset: 3px; }
+.support-help-image {
+  float: right;
+  width: min(116px, 34%);
+  max-height: 92px;
+  margin: 0 0 10px 14px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+.support-card-action {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 8px 13px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+.support-slide .support-card-action { color: #ffe27a; }
+.agenda-support-card .support-card-media { background: #211d09; }
+.support-help-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.support-help-section {
+  padding: 17px;
+  border: 1px solid rgba(245, 197, 24, .20);
+  border-radius: 17px;
+  background: rgba(255, 255, 255, .035);
+}
+.support-help-section h3 { margin: 0 0 12px; color: #ffe27a; font-size: 19px; }
+.support-help-section-intro { color: #e5ddba; }
+.support-help-service + .support-help-service { margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(245, 197, 24, .16); }
+.support-help-service h4 { margin: 0 0 6px; font-size: 16px; }
+.support-help-service p { margin: 5px 0; color: #e5ddba; line-height: 1.48; }
+.support-help-address { color: #fffdf5 !important; }
+.support-help-contacts { margin: 7px 0; padding-left: 20px; color: #fffdf5; }
+.support-help-note { font-size: 13px; }
+.support-help-resource-section {
+  color: #ffe27a !important;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.support-help-sensitive {
+  display: inline-block;
+  padding: 3px 7px;
+  border: 1px solid rgba(255, 226, 122, .3);
+  border-radius: 999px;
+  color: #fff4bc !important;
+  font-size: 12px;
+}
+.support-help-disclaimer { margin: 22px 0 0; padding: 14px; border-left: 4px solid #f5c518; background: rgba(245, 197, 24, .07); line-height: 1.5; }
+.support-help-future { margin: 12px 0 0; color: #bfb794; font-size: 13px; line-height: 1.5; }
+
 @media (max-width: 720px) {
   .visual-theme-switcher { left: max(9px, env(safe-area-inset-left)); bottom: max(9px, env(safe-area-inset-bottom)); }
   .visual-theme-toggle { width: 42px; height: 42px; }
-  .campaign-agosto-lilas-badge {
+  .campaign-profile-badge {
     top: 1%;
     height: 15%;
     min-height: 52px;
     max-height: 96px;
     max-width: 96%;
   }
+  body > .campaign-help-button { top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); padding: 8px 11px; font-size: 11px; }
+  .media > .campaign-help-button { top: calc(1% + min(15%, 52px) + 8px); padding: 8px 12px; font-size: 12px; }
+  .support-help-sections { grid-template-columns: 1fr; }
+  .support-help-shell { padding: 17px; }
   html[data-visual-theme="agosto-lilas-glow"] body.panel-mode .content::before { filter: blur(12px); opacity: .82; }
 }
 
