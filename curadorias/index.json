@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "escopo": "site-only",
+  "descricao": "Curadorias publicadas no Mural Cultural.",
+  "curadorias": [
+    {
+      "id": "vestibular-ufmg-seriado-2026",
+      "arquivo": "curadorias/vestibular-ufmg-seriado-2026.json",
+      "nome": "Seriado UFMG 2026 — Obras para Vestibular",
+      "ativo_de": "2026-09-01",
+      "ativo_ate": "2026-12-13",
+      "tema": "Vestibular UFMG",
+      "ordem": 20,
+      "source_sha": "f85c175984a779ef03f156a39fed85ecdbb7c8a9",
+      "publicado_em": "2026-09-07T03:51:17+00:00"
+    }
+  ]
+}
