@@ -6,6 +6,7 @@
   const COURSES_URL = 'cursos.json';
   const CONTESTS_URL = 'concursos.json';
   const FILMS_URL = 'filmes.json';
+  const UTILITY_URL = 'utilidade-publica.json';
   const SITE_CURATIONS_INDEX_URL = 'curadorias/index.json';
   const CONFIG_URL = 'configuracao-mural.json';
   const app = document.getElementById('app');
@@ -56,8 +57,11 @@
     books: { singular: 'livro', plural: 'livros' },
     courses: { singular: 'curso', plural: 'cursos' },
     contests: { singular: 'concurso', plural: 'concursos' },
-    films: { singular: 'filme', plural: 'filmes' }
+    films: { singular: 'filme', plural: 'filmes' },
+    utility: { singular: 'item de utilidade pública', plural: 'itens de utilidade pública' }
   });
+  const PANEL_UTILITY_LIMIT = 4;
+  const PANEL_BOOK_LIMIT = 15;
   const ALLOWED_SLIDE_DURATIONS = new Set([0, 5, 8, 10, 12, 15, 20, 30]);
   const CONTENT_SUBTITLES = Object.freeze({
     evento: 'Agenda Cultural',
@@ -131,6 +135,7 @@
     coursesData: null,
     contestsData: null,
     filmsData: null,
+    utilityData: null,
     siteCurationsData: null,
     config: null,
     allEvents: [],
@@ -138,8 +143,12 @@
     allCourses: [],
     allContests: [],
     allFilms: [],
+    allUtility: [],
     events: [],
-    panelRoundSamples: { courses: [], contests: [], films: [] },
+    panelRoundSamples: { books: [], courses: [], contests: [], films: [], utility: [] },
+    panelMemory: muralCore.createPanelMemory(),
+    panelRoundSteps: [],
+    panelSeenSteps: new WeakSet(),
     index: 0,
     timer: null,
     isPaused: false,
@@ -148,10 +157,10 @@
     btnPlayPause: null,
     btnFilter: null,
     filterOverlay: null,
-    panelModules: { events: true, books: true, courses: true, contests: true, films: true },
+    panelModules: { events: true, books: true, courses: true, contests: true, films: true, utility: false },
     panelEventCities: [],
     panelBookCampuses: [],
-    panelWeights: { events: 5, books: 1, courses: 1, contests: 1, films: 1 },
+    panelWeights: { events: 5, books: 1, courses: 1, contests: 1, films: 1, utility: 1 },
     filters: {
       content: 'all',
       theme: '',
@@ -170,6 +179,7 @@
     slideDuration: 0,
     mobileQuery: '',
     mobileContent: 'all',
+    mobileCuration: '',
     mobileTheme: '',
     mobilePeriod: 'all',
     mobileCategory: '',
@@ -188,12 +198,15 @@
     mobileFilmYearTo: '',
     mobileFilmDuration: '',
     mobileFilmSort: 'title-asc',
+    mobileUtilityArea: '',
+    mobileUtilityType: '',
     agendaVisibleCounts: {
       events: AGENDA_BATCH_SIZE,
       books: AGENDA_BATCH_SIZE,
       courses: AGENDA_BATCH_SIZE,
       contests: AGENDA_BATCH_SIZE,
-      films: AGENDA_BATCH_SIZE
+      films: AGENDA_BATCH_SIZE,
+      utility: AGENDA_BATCH_SIZE
     }
   };
 
@@ -757,36 +770,81 @@
     const coursesEnabled = state.panelModules.courses && state.config?.modulos?.cursos !== false;
     const contestsEnabled = state.panelModules.contests && state.config?.modulos?.concursos !== false;
     const filmsEnabled = state.panelModules.films && state.config?.modulos?.filmes !== false;
+    const utilityEnabled = state.panelModules.utility && state.config?.modulos?.utilidade_publica !== false;
     const events = eventsEnabled ? visibleEventsForFilters() : [];
-    const books = booksEnabled ? filterBooks(state.allBooks) : [];
+    const eligibleBooks = booksEnabled ? filterBooks(state.allBooks) : [];
+    const sampleOptions = module => ({
+      previousItems: state.panelRoundSamples[module],
+      exposure: state.panelMemory.exposure
+    });
+    const books = muralCore.sampleForPanel(eligibleBooks, PANEL_BOOK_LIMIT, sampleOptions('books'));
     const themedCourses = state.filters.theme
       ? state.allCourses.filter(course => courseMatchesTheme(course, state.filters.theme))
       : state.allCourses;
-    const courses = coursesEnabled ? coursesContent.sampleForPanel(themedCourses, undefined, {
-      previousItems: state.panelRoundSamples.courses
-    }) : [];
+    const courses = coursesEnabled ? coursesContent.sampleForPanel(themedCourses, undefined, sampleOptions('courses')) : [];
     const contests = contestsEnabled && !state.filters.theme
-      ? contestsContent.sampleForPanel(state.allContests, undefined, {
-        previousItems: state.panelRoundSamples.contests
-      })
+      ? contestsContent.sampleForPanel(state.allContests, undefined, sampleOptions('contests'))
       : [];
-    const films = filmsEnabled ? filmsContent.sampleForPanel(state.allFilms, {
+    const filmFilters = {
       genre: state.filters.filmGenre,
       theme: state.filters.theme,
       rating: state.filters.filmRating,
       duration: state.filters.filmDuration,
       sort: 'title-asc'
-    }, normalizeText, undefined, {
-      previousItems: state.panelRoundSamples.films
+    };
+    const films = filmsEnabled ? filmsContent.sampleForPanel(state.allFilms, filmFilters,
+      normalizeText, undefined, sampleOptions('films')) : [];
+    const utilityTheme = normalizeText(state.filters.theme);
+    const eligibleUtility = utilityEnabled ? utilitySource().filter(item => {
+      if (item.support_target && !(state.siteCurationsData?.curadorias || []).some(curation =>
+        siteCurationsContent.matchesCuration(item, curation) && siteCurationsContent.isPromoted(curation))) return false;
+      return !utilityTheme || (Array.isArray(item.temas) ? item.temas : [])
+        .some(theme => normalizeText(theme) === utilityTheme);
     }) : [];
-    state.panelRoundSamples = { courses, contests, films };
-    state.events = muralCore.interleaveContents([
-      { items: events, weight: state.panelWeights.events },
-      { items: books, weight: state.panelWeights.books },
-      { items: courses, weight: state.panelWeights.courses },
-      { items: contests, weight: state.panelWeights.contests },
-      { items: films, weight: state.panelWeights.films }
-    ]);
+    const utility = muralCore.sampleForPanel(
+      eligibleUtility,
+      PANEL_UTILITY_LIMIT,
+      sampleOptions('utility')
+    );
+    state.panelRoundSamples = { books, courses, contests, films, utility };
+    // Perfil temático explícito conserva a composição e os pesos já configurados.
+    if (state.filters.theme || activeEditorialPanelProfileId()) {
+      state.events = muralCore.interleaveContents([
+        { items: events, weight: state.panelWeights.events },
+        { items: books, weight: state.panelWeights.books },
+        { items: courses, weight: state.panelWeights.courses },
+        { items: contests, weight: state.panelWeights.contests },
+        { items: films, weight: state.panelWeights.films },
+        { items: utility, weight: state.panelWeights.utility }
+      ]);
+      state.panelRoundSteps = state.events.map(item => ({ item }));
+    } else {
+      // Microblocos usam o catálogo elegível completo, não apenas a amostra geral.
+      const eligible = {
+        events, books: eligibleBooks,
+        courses: coursesEnabled ? coursesContent.filter(themedCourses) : [],
+        contests: contestsEnabled ? contestsContent.filter(state.allContests).map(contestsContent.publicRecord) : [],
+        films: filmsEnabled ? filmsContent.filter(state.allFilms, filmFilters, normalizeText) : [],
+        utility: eligibleUtility
+      };
+      const curations = (state.siteCurationsData?.curadorias || [])
+        .filter(curation => siteCurationsContent.isPromoted(curation))
+        .map(curation => {
+          const settings = curation.perfil_painel?.configuracao;
+          return {
+            id: curation.id,
+            items: Object.entries(eligible)
+              .filter(([module]) => settings?.modules?.[module] !== false)
+              .flatMap(([, items]) => items)
+              .filter(item => siteCurationsContent.matchesCuration(item, curation))
+          };
+        });
+      state.panelRoundSteps = muralCore.createPanelSequence(events,
+        Object.entries(state.panelRoundSamples).map(([id, items]) => ({ id, items })),
+        curations, state.panelMemory);
+      state.events = state.panelRoundSteps.map(step => step.item);
+    }
+    state.panelSeenSteps = new WeakSet();
     return state.events;
   }
 
@@ -887,7 +945,7 @@
   function hasUserFilters() {
     return Boolean(
       !state.panelModules.events || !state.panelModules.books || !state.panelModules.courses ||
-      !state.panelModules.contests || !state.panelModules.films ||
+      !state.panelModules.contests || !state.panelModules.films || state.panelModules.utility ||
       state.filters.theme || state.panelEventCities.length ||
       state.filters.category || state.filters.program || state.filters.unit ||
       state.filters.rating || state.filters.period !== 'all' ||
@@ -1011,6 +1069,7 @@
     for (const book of state.allBooks) (Array.isArray(book.temas) ? book.temas : []).forEach(add);
     for (const course of state.allCourses) (Array.isArray(course.temas) ? course.temas : []).forEach(add);
     for (const movie of state.allFilms) (Array.isArray(movie.temas) ? movie.temas : []).forEach(add);
+    for (const item of state.allUtility) (Array.isArray(item.temas) ? item.temas : []).forEach(add);
     return [...values.entries()].sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'));
   }
 
@@ -1111,7 +1170,8 @@ function eventProgram(event) {
         state.panelModules.books !== defaults.modules.books ||
         state.panelModules.courses !== defaults.modules.courses ||
         state.panelModules.contests !== defaults.modules.contests ||
-        state.panelModules.films !== defaults.modules.films) count += 1;
+        state.panelModules.films !== defaults.modules.films ||
+        state.panelModules.utility !== defaults.modules.utility) count += 1;
     if (state.filters.theme) count += 1;
     if (state.panelModules.events) {
       if (state.panelEventCities.length) count += 1;
@@ -1132,7 +1192,8 @@ function eventProgram(event) {
         state.panelWeights.books !== defaults.weights.books ||
         state.panelWeights.courses !== defaults.weights.courses ||
         state.panelWeights.contests !== defaults.weights.contests ||
-        state.panelWeights.films !== defaults.weights.films) count += 1;
+        state.panelWeights.films !== defaults.weights.films ||
+        state.panelWeights.utility !== defaults.weights.utility) count += 1;
     if (state.slideDuration !== defaults.slideDuration) count += 1;
     return count;
   }
@@ -1471,11 +1532,13 @@ function eventProgram(event) {
       ? state.config?.tempo_slide?.livro
       : type === 'concurso'
         ? state.config?.tempo_slide?.concurso
-        : type === 'filme'
-          ? state.config?.tempo_slide?.filme
-          : type === 'curso'
-            ? state.config?.tempo_slide?.curso
-            : state.config?.tempo_slide?.evento;
+        : type === 'utilidade_publica'
+          ? state.config?.tempo_slide?.utilidade_publica
+          : type === 'filme'
+            ? state.config?.tempo_slide?.filme
+            : type === 'curso'
+              ? state.config?.tempo_slide?.curso
+              : state.config?.tempo_slide?.evento;
     return Math.max(
       5,
       Number(item?.tempo_slide) ||
@@ -1820,6 +1883,7 @@ function eventProgram(event) {
       showIframe();
     }
 
+    slide.dataset.curadoriaIds = JSON.stringify(siteCurationsContent.mergeCurationIds(state.events[index]?.curadoria_ids));
     app.replaceChildren(slide);
 
     // Atualizar referências dos botões após renderizar o slide
@@ -2038,6 +2102,7 @@ function eventProgram(event) {
       fallback.style.display = 'grid';
     }
 
+    slide.dataset.curadoriaIds = JSON.stringify(siteCurationsContent.mergeCurationIds(state.events[index]?.curadoria_ids));
     app.replaceChildren(slide);
     scheduleBookFit(slide);
     state.btnNext = slide.querySelector('.next-btn');
@@ -2073,6 +2138,7 @@ function eventProgram(event) {
       }
     });
 
+    slide.dataset.curadoriaIds = JSON.stringify(siteCurationsContent.mergeCurationIds(state.events[index]?.curadoria_ids));
     app.replaceChildren(slide);
 
     state.btnNext = slide.querySelector('.next-btn');
@@ -2109,6 +2175,7 @@ function eventProgram(event) {
       }
     });
 
+    slide.dataset.curadoriaIds = JSON.stringify(siteCurationsContent.mergeCurationIds(state.events[index]?.curadoria_ids));
     app.replaceChildren(slide);
 
     state.btnNext = slide.querySelector('.next-btn');
@@ -2125,12 +2192,12 @@ function eventProgram(event) {
     scheduleNextSlide();
   }
 
-  function renderFilmSlide(index) {
+  function renderMediaSlide(index, createSlide) {
     clearTimeout(state.timer);
     const movie = state.events[index];
     if (!movie) return;
 
-    const slide = filmsContent.createPanelSlide({
+    const slide = createSlide({
       movie,
       index,
       total: state.events.length,
@@ -2146,6 +2213,7 @@ function eventProgram(event) {
       }
     });
 
+    slide.dataset.curadoriaIds = JSON.stringify(siteCurationsContent.mergeCurationIds(state.events[index]?.curadoria_ids));
     app.replaceChildren(slide);
     state.btnNext = slide.querySelector('.next-btn');
     state.btnPrev = slide.querySelector('.prev-btn');
@@ -2160,13 +2228,29 @@ function eventProgram(event) {
     scheduleNextSlide();
   }
 
+  function renderFilmSlide(index) {
+    renderMediaSlide(index, filmsContent.createPanelSlide);
+  }
+
+  function renderUtilitySlide(index) {
+    renderMediaSlide(index, siteCurationsContent.createPanelSupportSlide);
+  }
+
   function renderSlide(index) {
     const item = state.events[index];
     if (!item) return;
+    const step = state.panelRoundSteps[index];
+    if (step && !state.panelSeenSteps.has(step)) {
+      muralCore.recordPanelExposure(state.panelMemory, step);
+      state.panelSeenSteps.add(step);
+    } else {
+      muralCore.recordPanelExposure(state.panelMemory, { item });
+    }
     if (item.tipo_conteudo === 'livro') renderBookSlide(index);
     else if (item.tipo_conteudo === 'curso') renderCourseSlide(index);
     else if (item.tipo_conteudo === 'concurso') renderContestSlide(index);
     else if (item.tipo_conteudo === 'filme') renderFilmSlide(index);
+    else if (item.tipo_conteudo === 'utilidade_publica') renderUtilitySlide(index);
     else renderEventSlide(index);
   }
 
@@ -2294,7 +2378,9 @@ function eventProgram(event) {
           : state.config?.modulos?.concursos !== false,
         films: panelModules.filmes !== undefined
           ? Boolean(panelModules.filmes)
-          : state.config?.modulos?.filmes !== false
+          : state.config?.modulos?.filmes !== false,
+        // Perfis precisam declarar Utility explicitamente; a presença de dados não o ativa.
+        utility: false
       },
       theme: String(panel.tema || ''),
       eventCities: Array.isArray(eventConfig.cidades) ? eventConfig.cidades.map(normalizeText).filter(Boolean) : [],
@@ -2311,7 +2397,8 @@ function eventProgram(event) {
         books: Math.max(1, Number(frequency.livros) || 1),
         courses: Math.max(1, Number(frequency.cursos) || 1),
         contests: Math.max(1, Number(frequency.concursos) || 1),
-        films: Math.max(1, Number(frequency.filmes) || 1)
+        films: Math.max(1, Number(frequency.filmes) || 1),
+        utility: 1
       },
       slideDuration: ALLOWED_SLIDE_DURATIONS.has(Number(panel.tempo_slides)) ? Number(panel.tempo_slides) : 0
     };
@@ -2329,7 +2416,8 @@ function eventProgram(event) {
         books: modules.books !== undefined ? Boolean(modules.books) : defaults.modules.books,
         courses: modules.courses !== undefined ? Boolean(modules.courses) : defaults.modules.courses,
         contests: modules.contests !== undefined ? Boolean(modules.contests) : defaults.modules.contests,
-        films: modules.films !== undefined ? Boolean(modules.films) : defaults.modules.films
+        films: modules.films !== undefined ? Boolean(modules.films) : defaults.modules.films,
+        utility: modules.utility !== undefined ? Boolean(modules.utility) : defaults.modules.utility
       },
       theme: String(value.theme || ''),
       eventCities: Array.isArray(value.eventCities) ? value.eventCities.map(normalizeText).filter(Boolean) : [],
@@ -2346,7 +2434,8 @@ function eventProgram(event) {
         books: clampWeight(weights.books ?? defaults.weights.books),
         courses: clampWeight(weights.courses ?? defaults.weights.courses),
         contests: clampWeight(weights.contests ?? defaults.weights.contests),
-        films: clampWeight(weights.films ?? defaults.weights.films)
+        films: clampWeight(weights.films ?? defaults.weights.films),
+        utility: clampWeight(weights.utility ?? defaults.weights.utility)
       },
       slideDuration: ALLOWED_SLIDE_DURATIONS.has(Number(value.slideDuration))
         ? Number(value.slideDuration)
@@ -2681,7 +2770,8 @@ function eventProgram(event) {
     const coursesEnabled = Boolean(slide.querySelector('.panel-module-courses')?.checked);
     const contestsEnabled = Boolean(slide.querySelector('.panel-module-contests')?.checked);
     const filmsEnabled = Boolean(slide.querySelector('.panel-module-films')?.checked);
-    if (!eventsEnabled && !booksEnabled && !coursesEnabled && !contestsEnabled && !filmsEnabled) {
+    const utilityEnabled = Boolean(slide.querySelector('.panel-module-utility')?.checked);
+    if (!eventsEnabled && !booksEnabled && !coursesEnabled && !contestsEnabled && !filmsEnabled && !utilityEnabled) {
       throw new Error('Ative pelo menos um tipo de conteúdo para o painel.');
     }
 
@@ -2702,7 +2792,8 @@ function eventProgram(event) {
         books: booksEnabled,
         courses: coursesEnabled,
         contests: contestsEnabled,
-        films: filmsEnabled
+        films: filmsEnabled,
+        utility: utilityEnabled
       },
       theme: slide.querySelector('.filter-theme')?.value || '',
       eventCities: checkedFilterValues(cityContainer),
@@ -2719,7 +2810,8 @@ function eventProgram(event) {
         books: slide.querySelector('.panel-book-weight')?.value || 1,
         courses: slide.querySelector('.panel-course-weight')?.value || 1,
         contests: slide.querySelector('.panel-contest-weight')?.value || 1,
-        films: slide.querySelector('.panel-film-weight')?.value || 1
+        films: slide.querySelector('.panel-film-weight')?.value || 1,
+        utility: slide.querySelector('.panel-utility-weight')?.value || 1
       },
       slideDuration: slide.querySelector('.filter-slide-duration')?.value || 0
     });
@@ -2731,16 +2823,19 @@ function eventProgram(event) {
     const coursesEnabled = Boolean(slide.querySelector('.panel-module-courses')?.checked);
     const contestsEnabled = Boolean(slide.querySelector('.panel-module-contests')?.checked);
     const filmsEnabled = Boolean(slide.querySelector('.panel-module-films')?.checked);
+    const utilityEnabled = Boolean(slide.querySelector('.panel-module-utility')?.checked);
     const eventSection = slide.querySelector('.panel-event-section');
     const bookSection = slide.querySelector('.panel-book-section');
     const courseSection = slide.querySelector('.panel-course-section');
     const contestSection = slide.querySelector('.panel-contest-section');
     const filmSection = slide.querySelector('.panel-film-section');
+    const utilitySection = slide.querySelector('.panel-utility-section');
     if (eventSection) eventSection.hidden = !eventsEnabled;
     if (bookSection) bookSection.hidden = !booksEnabled;
     if (courseSection) courseSection.hidden = !coursesEnabled;
     if (contestSection) contestSection.hidden = !contestsEnabled;
     if (filmSection) filmSection.hidden = !filmsEnabled;
+    if (utilitySection) utilitySection.hidden = !utilityEnabled;
   }
 
   function populateFilterPanel(slide, settings = currentPanelSettings()) {
@@ -2760,22 +2855,26 @@ function eventProgram(event) {
     const coursesToggle = slide.querySelector('.panel-module-courses');
     const contestsToggle = slide.querySelector('.panel-module-contests');
     const filmsToggle = slide.querySelector('.panel-module-films');
+    const utilityToggle = slide.querySelector('.panel-module-utility');
     if (eventsToggle) eventsToggle.checked = value.modules.events;
     if (booksToggle) booksToggle.checked = value.modules.books;
     if (coursesToggle) coursesToggle.checked = value.modules.courses;
     if (contestsToggle) contestsToggle.checked = value.modules.contests;
     if (filmsToggle) filmsToggle.checked = value.modules.films;
+    if (utilityToggle) utilityToggle.checked = value.modules.utility;
     if (durationSelect) durationSelect.value = String(value.slideDuration || 0);
     const eventWeight = slide.querySelector('.panel-event-weight');
     const bookWeight = slide.querySelector('.panel-book-weight');
     const courseWeight = slide.querySelector('.panel-course-weight');
     const contestWeight = slide.querySelector('.panel-contest-weight');
     const filmWeight = slide.querySelector('.panel-film-weight');
+    const utilityWeight = slide.querySelector('.panel-utility-weight');
     if (eventWeight) eventWeight.value = String(value.weights.events);
     if (bookWeight) bookWeight.value = String(value.weights.books);
     if (courseWeight) courseWeight.value = String(value.weights.courses);
     if (contestWeight) contestWeight.value = String(value.weights.contests);
     if (filmWeight) filmWeight.value = String(value.weights.films);
+    if (utilityWeight) utilityWeight.value = String(value.weights.utility);
 
     populateDynamicSelect(themeSelect, 'Todos os temas', universalThemeOptions(), value.theme);
 
@@ -2957,11 +3056,7 @@ function eventProgram(event) {
     closeButton?.addEventListener('click', closeFilterPanel);
     applyButton?.addEventListener('click', applyFiltersFromPanel);
     clearButton?.addEventListener('click', () => {
-      const defaults = defaultPanelSettings();
-      populateFilterPanel(slide, defaults);
-      const profileSelect = slide.querySelector('.panel-profile-select');
-      if (profileSelect) profileSelect.value = '';
-      showPanelValidation(slide, '');
+      restoreDefaultPanelSettings();
     });
 
     slide.querySelector('.panel-module-events')?.addEventListener('change', () => updatePanelModuleVisibility(slide));
@@ -2969,15 +3064,18 @@ function eventProgram(event) {
     slide.querySelector('.panel-module-courses')?.addEventListener('change', () => updatePanelModuleVisibility(slide));
     slide.querySelector('.panel-module-contests')?.addEventListener('change', () => updatePanelModuleVisibility(slide));
     slide.querySelector('.panel-module-films')?.addEventListener('change', () => updatePanelModuleVisibility(slide));
+    slide.querySelector('.panel-module-utility')?.addEventListener('change', () => updatePanelModuleVisibility(slide));
     slide.querySelector('.panel-profile-save')?.addEventListener('click', () => savePanelProfile(slide));
     slide.querySelector('.panel-profile-delete')?.addEventListener('click', () => deletePanelProfile(slide));
     slide.querySelector('.panel-profile-select')?.addEventListener('change', event => {
       const selected = event.target.value;
       const settings = selectedProfileSettings(selected);
-      if (settings) populateFilterPanel(slide, settings);
-      const deleteButton = slide.querySelector('.panel-profile-delete');
-      if (deleteButton) {
-        deleteButton.disabled = parseProfileOptionValue(selected).source !== 'personal';
+      // Perfis são escolhas imediatas; filtros individuais continuam usando Aplicar.
+      applyPanelSettingsAndRender(settings || defaultPanelSettings());
+      if (state.filterOverlay?.isConnected) {
+        // Preserva o menu aberto e o acesso a excluir perfis pessoais após renderizar.
+        populateProfileSelect(state.filterOverlay, selected);
+        openFilterPanel();
       }
     });
 
@@ -3112,6 +3210,26 @@ function eventProgram(event) {
     }).format(start).replace('.', '');
   }
 
+  function agendaCurationEntries() {
+    const curations = state.siteCurationsData?.curadorias;
+    if (!Array.isArray(curations)) return [];
+    return curations.map(curation => ({
+      id: String(curation?.id || '').trim(),
+      name: String(curation?.nome || curation?.id || '').trim(),
+      permanente: curation?.permanente === true,
+      theme: normalizeText(curation?.perfil_painel?.configuracao?.theme || '') ||
+        normalizeText(curation?.tema || ''),
+      start: String(curation?.ativo_de || '').trim(),
+      end: String(curation?.ativo_ate || '').trim()
+    })).filter(curation => curation.id && (curation.permanente || editorialProfileIsVisible(curation)));
+  }
+
+  function agendaItemMatchesCuration(item, curation) {
+    if (!state.mobileCuration) return true;
+    if (!curation) return false;
+    return siteCurationsContent.matchesCuration(item, curation);
+  }
+
   function agendaThemeOptions(content = state.mobileContent) {
     const values = new Map();
     const add = label => {
@@ -3129,14 +3247,21 @@ function eventProgram(event) {
       for (const course of state.allCourses) (Array.isArray(course.temas) ? course.temas : []).forEach(add);
     }
     if (content === 'films') {
-      for (const movie of state.allFilms) (Array.isArray(movie.temas) ? movie.temas : []).forEach(add);
+      for (const movie of state.allFilms) {
+        (Array.isArray(movie.temas) ? movie.temas : []).forEach(add);
+      }
     }
     return [...values.entries()].sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'));
   }
 
   function normalizeAgendaFiltersForContent(content = state.mobileContent) {
-    const allowedContents = new Set(['all', 'events', 'books', 'courses', 'contests', 'films']);
+    const allowedContents = new Set(['all', 'events', 'books', 'courses', 'contests', 'films', 'utility']);
     state.mobileContent = allowedContents.has(content) ? content : 'all';
+
+    // A troca de conteúdo preserva a curadoria; apenas uma opção indisponível expira.
+    if (state.mobileCuration && !agendaCurationEntries().some(curation => curation.id === state.mobileCuration)) {
+      state.mobileCuration = '';
+    }
 
     if (!['events', 'books', 'courses', 'films'].includes(state.mobileContent)) {
       state.mobileTheme = '';
@@ -3154,6 +3279,10 @@ function eventProgram(event) {
       state.mobileRegistration = '';
     }
     if (state.mobileContent !== 'books') state.mobileBookAccess = '';
+    if (state.mobileContent !== 'utility') {
+      state.mobileUtilityArea = '';
+      state.mobileUtilityType = '';
+    }
     if (state.mobileContent !== 'contests') {
       state.mobileContestFormation = '';
       state.mobileContestUf = '';
@@ -3187,14 +3316,14 @@ function eventProgram(event) {
 
   function agendaUsesDetailedEventRecords() {
     return Boolean(
-      state.mobileQuery || state.mobileTheme || state.mobileCategory ||
+      state.mobileQuery || state.mobileCuration || state.mobileTheme || state.mobileCategory ||
       state.mobileSpace || state.mobileInstitution
     );
   }
 
   function agendaHasSpecificEventFilters() {
     return Boolean(
-      state.mobileQuery || state.mobileTheme || state.mobilePeriod !== 'all' ||
+      state.mobileQuery || state.mobileCuration || state.mobileTheme || state.mobilePeriod !== 'all' ||
       state.mobileCity || state.mobileCategory || state.mobileSpace ||
       state.mobileInstitution || state.mobileRegistration
     );
@@ -3359,19 +3488,57 @@ function eventProgram(event) {
     }, normalizeText);
   }
 
+  function utilitySource() {
+    return state.allUtility;
+  }
+
+  function agendaUtilityOptions(field) {
+    const values = new Map();
+    for (const item of utilitySource()) {
+      for (const label of item[field]) {
+        const text = String(label || '').trim();
+        const value = normalizeText(text);
+        if (value && !values.has(value)) values.set(value, text);
+      }
+    }
+    return [...values.entries()].sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'));
+  }
+
+  function agendaVisibleUtility() {
+    if (!['all', 'utility'].includes(state.mobileContent)) return [];
+    const query = normalizeText(state.mobileQuery);
+    const specific = state.mobileContent === 'utility';
+    return utilitySource().filter(item => {
+      if (specific && state.mobileUtilityArea &&
+          !item.areas_utilidade.some(area => normalizeText(area) === state.mobileUtilityArea)) return false;
+      if (specific && state.mobileUtilityType &&
+          !item.tipos_recurso.some(type => normalizeText(type) === state.mobileUtilityType)) return false;
+      if (!query) return true;
+      return normalizeText([
+        item.titulo, item.descricao, item.destaque, item.detalhe,
+        ...(Array.isArray(item.termos_busca) ? item.termos_busca : []),
+        ...item.areas_utilidade, ...item.tipos_recurso
+      ].join(' ')).includes(query);
+    });
+  }
+
   function agendaVisibleContents() {
-    const events = agendaVisibleEvents();
-    const books = agendaVisibleBooks();
-    const courses = agendaVisibleCourses();
-    const contests = agendaVisibleContests();
-    const films = agendaVisibleFilms();
+    const curation = agendaCurationEntries().find(entry => entry.id === state.mobileCuration);
+    const matchesCuration = item => agendaItemMatchesCuration(item, curation);
+    const events = agendaVisibleEvents().filter(matchesCuration);
+    const books = agendaVisibleBooks().filter(matchesCuration);
+    const courses = agendaVisibleCourses().filter(matchesCuration);
+    const contests = agendaVisibleContests().filter(matchesCuration);
+    const films = agendaVisibleFilms().filter(matchesCuration);
+    const utility = agendaVisibleUtility().filter(matchesCuration);
     return {
       events,
       books,
       courses,
       contests,
       films,
-      total: events.length + books.length + courses.length + contests.length + films.length
+      utility,
+      total: events.length + books.length + courses.length + contests.length + films.length + utility.length
     };
   }
 
@@ -3379,6 +3546,7 @@ function eventProgram(event) {
     if (state.mobileContent === 'contests') {
       return [
         state.mobileQuery,
+        state.mobileCuration,
         state.mobileContestFormation,
         state.mobileContestUf,
         state.mobileContestDeadline
@@ -3387,6 +3555,7 @@ function eventProgram(event) {
     if (state.mobileContent === 'films') {
       return [
         state.mobileQuery,
+        state.mobileCuration,
         state.mobileFilmGenre,
         state.mobileTheme,
         state.mobileFilmLetter,
@@ -3398,7 +3567,7 @@ function eventProgram(event) {
       ].filter(Boolean).length;
     }
 
-    const common = [state.mobileQuery];
+    const common = [state.mobileQuery, state.mobileCuration];
     if (state.mobileContent !== 'all') common.push(state.mobileContent);
     if (state.mobileContent === 'events') {
       common.push(
@@ -3409,12 +3578,17 @@ function eventProgram(event) {
       );
     } else if (state.mobileContent === 'books') {
       common.push(state.mobileTheme, state.mobileBookAccess);
+    } else if (state.mobileContent === 'utility') {
+      common.push(state.mobileUtilityArea, state.mobileUtilityType);
     }
     return common.filter(Boolean).length;
   }
 
   function clearAgendaFilters() {
+    state.mobileUtilityArea = '';
+    state.mobileUtilityType = '';
     state.mobileQuery = '';
+    state.mobileCuration = '';
     state.mobileContent = 'all';
     state.mobileTheme = '';
     state.mobilePeriod = 'all';
@@ -3430,14 +3604,20 @@ function eventProgram(event) {
   }
 
   function clearContestAgendaFilters() {
+    state.mobileUtilityArea = '';
+    state.mobileUtilityType = '';
     state.mobileQuery = '';
+    state.mobileCuration = '';
     state.mobileContestFormation = '';
     state.mobileContestUf = '';
     state.mobileContestDeadline = '';
   }
 
   function clearFilmAgendaFilters() {
+    state.mobileUtilityArea = '';
+    state.mobileUtilityType = '';
     state.mobileQuery = '';
+    state.mobileCuration = '';
     state.mobileFilmGenre = '';
     state.mobileTheme = '';
     state.mobileFilmLetter = '';
@@ -3502,10 +3682,15 @@ function eventProgram(event) {
     if (state.mobileContent === 'courses') return 'Cursos Online Gratuitos';
     if (state.mobileContent === 'contests') return 'Concursos públicos';
     if (state.mobileContent === 'films') return 'Filmes gratuitos';
+    if (state.mobileContent === 'utility') return 'Utilidade Pública';
     return 'Descobertas culturais';
   }
 
   function renderAgendaCard(item, options = {}) {
+    if (item.tipo_conteudo === 'utilidade_publica') {
+      return siteCurationsContent.createAgendaSupportCard(item);
+    }
+
     if (item.tipo_conteudo === 'filme') {
       return filmsContent.createAgendaCard(item, {
         escapeHtml,
@@ -3729,6 +3914,7 @@ function eventProgram(event) {
 
     const contestMode = state.mobileContent === 'contests';
     const filmMode = state.mobileContent === 'films';
+    const utilityMode = state.mobileContent === 'utility';
     const themeMode = ['events', 'books', 'courses', 'films'].includes(state.mobileContent);
     const searchPlaceholder = contestMode
       ? 'Órgão, cargo, cidade, formação…'
@@ -3740,7 +3926,9 @@ function eventProgram(event) {
           ? 'Título, autor ou tema…'
           : filmMode
             ? 'Título, direção, sinopse, gênero ou tema…'
-            : 'Título, autor ou instituição…';
+            : utilityMode
+              ? 'Título, descrição, área ou tipo de recurso…'
+              : 'Título, autor ou instituição…';
     const themeControl = themeMode ? `
       <label><span>Tema</span><select class="agenda-theme"><option value="">Todos os temas</option></select></label>
     ` : '';
@@ -3748,7 +3936,9 @@ function eventProgram(event) {
       <label class="agenda-search"><span>Pesquisar</span><input type="search" placeholder="${escapeHtml(searchPlaceholder)}" value="${escapeHtml(state.mobileQuery)}"></label>
       <label><span>Conteúdo</span><select class="agenda-content">
         <option value="all">Todos</option><option value="events">Eventos</option><option value="books">Livros</option><option value="courses">Cursos</option><option value="contests">Concursos</option><option value="films">Filmes</option>
+        <option value="utility">Utilidade Pública</option>
       </select></label>
+      <label><span>Curadoria</span><select class="agenda-curation"><option value="">Todas as curadorias</option></select></label>
       ${themeControl}
     `;
 
@@ -3800,9 +3990,24 @@ function eventProgram(event) {
       </select></label>
     ` : '';
 
-    controls.innerHTML = commonControls + eventControls + bookControls + contestControls + filmControls;
+    const utilityControls = utilityMode ? `
+      <label><span>Área de Utilidade Pública</span><select class="agenda-utility-area"><option value="">Todas as áreas</option></select></label>
+      <label><span>Tipo de recurso</span><select class="agenda-utility-type"><option value="">Todos os tipos</option></select></label>
+    ` : '';
+
+    controls.innerHTML = commonControls + eventControls + bookControls + contestControls + filmControls + utilityControls;
 
     controls.querySelector('.agenda-content').value = state.mobileContent;
+    if (utilityMode) {
+      populateDynamicSelect(controls.querySelector('.agenda-utility-area'), 'Todas as áreas', agendaUtilityOptions('areas_utilidade'), state.mobileUtilityArea);
+      populateDynamicSelect(controls.querySelector('.agenda-utility-type'), 'Todos os tipos', agendaUtilityOptions('tipos_recurso'), state.mobileUtilityType);
+    }
+    populateDynamicSelect(
+      controls.querySelector('.agenda-curation'),
+      'Todas as curadorias',
+      agendaCurationEntries().map(curation => [curation.id, curation.name]),
+      state.mobileCuration
+    );
     populateDynamicSelect(
       controls.querySelector('.agenda-theme'),
       'Todos os temas',
@@ -3887,6 +4092,7 @@ function eventProgram(event) {
       const eventsProgressiveControl = createAgendaProgressiveControl(eventsGrid, results.events, 'events');
       resultsContainer.append(eventsGrid);
       if (eventsProgressiveControl) resultsContainer.append(eventsProgressiveControl);
+      appendAgendaSection(resultsContainer, 'Utilidade Pública', results.utility, 'utility', 'Ver somente utilidade pública');
       appendAgendaSection(resultsContainer, 'Sugestões de Leitura', results.books, 'books', 'Ver somente livros');
       appendAgendaSection(resultsContainer, 'Cursos Online Gratuitos', results.courses, 'courses', 'Ver somente cursos');
       appendAgendaSection(resultsContainer, 'Concursos públicos', results.contests, 'contests', 'Ver somente concursos');
@@ -3902,7 +4108,9 @@ function eventProgram(event) {
             ? results.contests
             : state.mobileContent === 'films'
               ? results.films
-              : results.courses;
+              : state.mobileContent === 'utility'
+                ? results.utility
+                : results.courses;
       const renderItem = state.mobileContent === 'events' && !agendaHasSpecificEventFilters()
         ? item => renderAgendaCard(item, { exclusiveUnfilteredEvent: true })
         : renderAgendaCard;
@@ -3947,7 +4155,10 @@ function eventProgram(event) {
       normalizeAgendaFiltersForContent(event.target.value);
       rerender();
     });
+    controls.querySelector('.agenda-curation').addEventListener('change', event => { state.mobileCuration = event.target.value; rerender(); });
     controls.querySelector('.agenda-theme')?.addEventListener('change', event => { state.mobileTheme = event.target.value; rerender(); });
+    controls.querySelector('.agenda-utility-area')?.addEventListener('change', event => { state.mobileUtilityArea = event.target.value; rerender(); });
+    controls.querySelector('.agenda-utility-type')?.addEventListener('change', event => { state.mobileUtilityType = event.target.value; rerender(); });
 
     if (state.mobileContent === 'events') {
       controls.querySelector('.agenda-period').addEventListener('change', event => { state.mobilePeriod = event.target.value; rerender(); });
@@ -4065,7 +4276,7 @@ function eventProgram(event) {
         console.warn(`Curadoria ${id} ausente, inválida ou com ID divergente.`);
         return null;
       }
-      return curation;
+      return { ...curation, ativo_de: entry.ativo_de, ativo_ate: entry.ativo_ate };
     }));
 
     return publish({
@@ -4078,12 +4289,13 @@ function eventProgram(event) {
 
   async function load() {
     try {
-      const [response, booksData, coursesData, contestsData, filmsData, siteCurationsData, config] = await Promise.all([
+      const [response, booksData, coursesData, contestsData, filmsData, utilityData, siteCurationsData, config] = await Promise.all([
         fetch(`${DATA_URL}?v=${Date.now()}`, { cache: 'no-store' }),
         loadOptionalJson(BOOKS_URL, { livros: [] }),
         loadOptionalJson(COURSES_URL, { cursos: [] }),
         loadOptionalJson(CONTESTS_URL, { concursos: [] }),
         loadOptionalJson(FILMS_URL, { filmes: [] }),
+        loadOptionalJson(UTILITY_URL, { itens: [] }),
         loadSiteCurations(),
         loadOptionalJson(CONFIG_URL, {
           nome: 'Mural Cultural',
@@ -4105,13 +4317,15 @@ function eventProgram(event) {
         ? contestsData
         : { concursos: [] };
       state.filmsData = filmsData && Array.isArray(filmsData.filmes) ? filmsData : { filmes: [] };
+      state.utilityData = utilityData && Array.isArray(utilityData.itens) ? utilityData : { itens: [] };
       state.siteCurationsData = siteCurationsData;
       state.config = config || {};
       const siteLayer = siteCurationsContent.apply(siteCurationsData, {
         eventos: data.eventos,
         livros: state.booksData.livros,
         cursos: state.coursesData.cursos,
-        filmes: state.filmsData.filmes
+        filmes: state.filmsData.filmes,
+        utilidade_publica: state.utilityData.itens
       });
       state.allEvents = filterAndSort(siteLayer.eventos).map(event => ({ ...event, tipo_conteudo: 'evento' }));
       state.allBooks = siteLayer.livros.map(book => ({ ...book, tipo_conteudo: 'livro' }));
@@ -4126,10 +4340,18 @@ function eventProgram(event) {
         ...movie,
         tipo_conteudo: 'filme'
       }));
+      state.allUtility = siteLayer.utilidade_publica
+        .filter(item => item?.tipo_conteudo === 'utilidade_publica' && item.id && item.titulo)
+        .map(item => ({
+          ...item,
+          areas_utilidade: Array.isArray(item.areas_utilidade) ? [...item.areas_utilidade] : [],
+          tipos_recurso: Array.isArray(item.tipos_recurso) ? [...item.tipos_recurso] : []
+        }));
       siteCurationsContent.mountSupportArea(siteLayer.apoio);
       siteCurationsContent.bindSupportRequest();
       state.schoolRotationBatch = readStoredSchoolBatch();
       loadStoredPanelSettings();
+      syncActivePanelProfile();
       rebuildVisibleItems();
 
       if (!state.events.length) {

@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'mural-cultural-v100-stylesheets-curadorias';
+const CACHE_VERSION = 'mural-cultural-v108-saude-mental';
 const CORE_CACHE = `${CACHE_VERSION}-core`;
 const DATA_CACHE = `${CACHE_VERSION}-data`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
@@ -10,16 +10,16 @@ const CORE_ASSETS = [
   './', './index.html',
   './css/styles.css?v=71',
   './css/eventos-manuais-ui.css?v=43',
-  './css/concursos-mural.css?v=2',
-  './css/temas-visuais.css?v=8',
-  './js/tema-visual-boot.js?v=3',
+  './css/concursos-mural.css?v=3',
+  './css/temas-visuais.css?v=11',
+  './js/tema-visual-boot.js?v=4',
   './js/core/rotacao.js?v=1',
   './js/conteudos/cursos.js?v=3',
   './js/conteudos/concursos.js?v=2',
   './js/conteudos/filmes.js?v=6',
-  './js/curadorias-site.js?v=4',
-  './js/app.js?v=91',
-  './js/temas-visuais.js?v=8',
+  './js/curadorias-site.js?v=8',
+  './js/app.js?v=97',
+  './js/temas-visuais.js?v=11',
   './js/eventos-manuais-ui.js?v=44',
   './js/ios-install.js?v=1',
   './imagens/curadorias/agosto-lilas-banner.png',
@@ -34,6 +34,7 @@ const DATA_PATHS = [
   '/cursos.json',
   '/concursos.json',
   '/filmes.json',
+  '/utilidade-publica.json',
   '/curadorias/index.json',
   '/configuracao-mural.json'
 ];

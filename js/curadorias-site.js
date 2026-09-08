@@ -38,10 +38,36 @@
   }
 
   function isActive(curation, today = new Date()) {
+    if (curation?.permanente === true) return true;
     const current = dateKey(today);
     const start = String(curation?.ativo_de || '');
     const end = String(curation?.ativo_ate || '');
     return Boolean(current && start && end && current >= start && current <= end);
+  }
+
+  // Disponibilidade e promoção são decisões independentes.
+  function isPromoted(curation, today = new Date()) {
+    if (!isActive(curation, today)) return false;
+    const months = curation?.promocao_painel?.meses;
+    if (!Array.isArray(months)) return true;
+    const date = today instanceof Date ? today : new Date(today);
+    return months.includes(date.getMonth() + 1);
+  }
+
+  function mergeCurationIds(...collections) {
+    return [...new Set(collections.flatMap(value => Array.isArray(value) ? value : [value])
+      .map(value => normalizeLabel(value || '').replace(/\s+/g, '-')).filter(Boolean))];
+  }
+
+  function matchesCuration(item, curation) {
+    const id = mergeCurationIds(curation?.id)[0];
+    if (!id) return false;
+    if (mergeCurationIds(item?.curadoria_ids).includes(id)) return true;
+    // Compatibilidade com as curadorias legadas; permanentes usam associação explícita.
+    if (curation.permanente) return false;
+    const theme = normalizeLabel(curation.perfil_painel?.configuracao?.theme || curation.tema || curation.theme);
+    return Boolean(theme && (Array.isArray(item?.temas) ? item.temas : [])
+      .some(value => normalizeLabel(value) === theme));
   }
 
   function isValidPayload(payload) {
@@ -55,6 +81,7 @@
   function cloneRecord(record) {
     return {
       ...record,
+      curadoria_ids: mergeCurationIds(record?.curadoria_ids),
       temas: Array.isArray(record?.temas) ? [...record.temas] : record?.temas
     };
   }
@@ -169,6 +196,7 @@
             site_only: true
           };
           item.temas = mergeLabels(item.temas, overlay?.temas);
+          item.curadoria_ids = mergeCurationIds(item.curadoria_ids, overlay?.curadoria_ids, options.curationId);
           result.push(item);
           continue;
         }
@@ -180,6 +208,7 @@
         continue;
       }
       target.temas = mergeLabels(target.temas, overlay?.temas);
+      target.curadoria_ids = mergeCurationIds(target.curadoria_ids, overlay?.curadoria_ids, options.curationId);
       applyOverlayUrlMetadata(target, overlay, options.warn, `${options.label} ${identifier}`);
       applyOverlayImageMetadata(target, overlay, options.warn, `${options.label} ${identifier}`);
     }
@@ -193,7 +222,13 @@
       if (typeof options.include === 'function' && !options.include(complement)) continue;
       const complementIds = options.identifiers(complement).filter(Boolean).map(String);
       if (!complementIds.length || complementIds.some(identifier => identifiers.has(identifier))) {
-        options.warn(`Curadoria site-only: complemento de ${options.label} sem ID próprio ou com colisão; item ignorado.`);
+        // Reutiliza a identidade já integrada sem sobrescrever seus dados ou associações.
+        const existing = result.find(item => options.identifiers(item).filter(Boolean)
+          .some(identifier => complementIds.includes(String(identifier))));
+        if (existing && normalizeLabel(existing.titulo) === normalizeLabel(complement.titulo)) {
+          existing.curadoria_ids = mergeCurationIds(existing.curadoria_ids, complement.curadoria_ids, options.curationId);
+        }
+        options.warn(`Curadoria site-only: complemento de ${options.label} sem ID próprio ou com colisão; dados do item ignorados.`);
         continue;
       }
       const item = {
@@ -201,137 +236,9 @@
         origem: 'site-only',
         site_only: true
       };
+      item.curadoria_ids = mergeCurationIds(item.curadoria_ids, options.curationId);
       result.push(item);
       complementIds.forEach(identifier => identifiers.add(identifier));
-    }
-    return result;
-  }
-
-  function findSupportSection(data, term) {
-    const needle = normalizeLabel(term);
-    return (Array.isArray(data?.secoes) ? data.secoes : [])
-      .find(section => normalizeLabel(section?.titulo).includes(needle)) || null;
-  }
-
-  function supportServiceNames(section) {
-    return (Array.isArray(section?.servicos) ? section.servicos : [])
-      .map(service => String(service?.nome || '').trim())
-      .filter(Boolean);
-  }
-
-  function buildPanelSupportItems(data) {
-    if (!data || !Array.isArray(data.secoes)) return [];
-
-    const emotionalSection = findSupportSection(data, 'apoio emocional');
-    const publicSection = findSupportSection(data, 'rede publica');
-    const universitySection = findSupportSection(data, 'universitario');
-    const cvv = (Array.isArray(emotionalSection?.servicos) ? emotionalSection.servicos : [])
-      .find(service => normalizeLabel(service?.nome).includes('cvv')) || emotionalSection?.servicos?.[0] || null;
-    const publicNames = supportServiceNames(publicSection);
-    const universityNames = supportServiceNames(universitySection);
-    const resources = Array.isArray(data.recursos_informativos) ? data.recursos_informativos : [];
-    const resourceSources = [...new Set(resources.map(item => String(item?.fonte || '').trim()).filter(Boolean))];
-
-    return [
-      {
-        id: 'site:apoio:setembro-cvv-188',
-        painel_apoio: true,
-        support_target: 'apoio-emocional',
-        titulo: 'Se precisar conversar, peça ajuda.',
-        descricao: 'Há diferentes caminhos de escuta e apoio. Consulte no Mural os canais do CVV, o serviço Pode Falar e o acesso pelo Meu SUS Digital.',
-        destaque: 'CVV • 188 • Pode Falar',
-        detalhe: 'Apoio emocional e orientação para adolescentes e jovens',
-        fonte_label: 'Canais de apoio emocional',
-        imagem: data.imagens_cards?.apoio_emocional,
-        termos_busca: ['CVV', '188', 'Pode Falar', 'Meu SUS Digital', 'apoio emocional', 'escuta'],
-        observacao: 'Em situação de emergência ou risco imediato, procure um serviço de urgência ou acione o SAMU pelo telefone 192.',
-        icone: '💛',
-        temas: ['Setembro Amarelo'],
-        tempo_slide: 15
-      },
-      {
-        id: 'site:apoio:setembro-rede-publica',
-        painel_apoio: true,
-        support_target: 'rede-publica',
-        titulo: 'Onde buscar atendimento em saúde mental',
-        descricao: 'A rede pública oferece serviços de atenção psicossocial. Os contatos completos e orientações estão disponíveis em “Onde buscar ajuda”.',
-        destaque: publicNames.filter(name => normalizeLabel(name).includes('sabara')).length
-          ? 'Sabará: CAPS Adulto e CAPS Infantil'
-          : 'CAPS e serviços da rede pública',
-        detalhe: 'Belo Horizonte: CERSAM / CERSAMi • Emergência: SAMU 192',
-        fonte_label: 'Rede pública de saúde mental',
-        imagem: data.imagens_cards?.rede_publica,
-        termos_busca: ['CAPS', 'CERSAM', 'CERSAMi', 'SAMU', 'UPA', 'rede pública', 'atendimento'],
-        observacao: 'Confirme diretamente com cada serviço as condições atuais de atendimento e disponibilidade.',
-        icone: '🤝',
-        temas: ['Setembro Amarelo'],
-        tempo_slide: 15
-      },
-      {
-        id: 'site:apoio:setembro-universidades',
-        painel_apoio: true,
-        support_target: 'atendimento-universitario',
-        titulo: 'Atendimento psicológico universitário',
-        descricao: 'Clínicas-escola e serviços universitários podem oferecer atendimento psicológico à comunidade, conforme triagem, vagas e condições de cada instituição.',
-        destaque: universityNames.length
-          ? universityNames.map(name => {
-            if (normalizeLabel(name).includes('ufmg')) return 'UFMG';
-            if (normalizeLabel(name).includes('puc minas')) return 'PUC Minas';
-            if (normalizeLabel(name).includes('fumec')) return 'FUMEC';
-            return name;
-          }).filter((value, index, values) => values.indexOf(value) === index).join(' • ')
-          : 'UFMG • PUC Minas • FUMEC',
-        detalhe: 'Atendimento sujeito a triagem, disponibilidade e condições atuais da instituição.',
-        fonte_label: 'Serviços universitários de Psicologia',
-        imagem: data.imagens_cards?.atendimento_universitario,
-        termos_busca: ['UFMG', 'PUC Minas', 'FUMEC', 'clínica-escola', 'psicologia', 'universidade'],
-        observacao: 'Esses serviços não substituem CERSAM, SAMU ou pronto atendimento em situações de emergência.',
-        icone: '🧠',
-        temas: ['Setembro Amarelo'],
-        tempo_slide: 15
-      },
-      {
-        id: 'site:apoio:setembro-informacao-confiavel',
-        painel_apoio: true,
-        support_target: 'informacao-confiavel',
-        titulo: 'Informação confiável sobre saúde mental',
-        descricao: 'O Mural reúne materiais gratuitos de instituições oficiais para leitura e aprofundamento sobre saúde mental, prevenção, acolhimento e redes de apoio.',
-        destaque: resourceSources.length
-          ? resourceSources.slice(0, 4).map(source => {
-            const normalized = normalizeLabel(source);
-            if (normalized.includes('ministerio da saude')) return 'Ministério da Saúde';
-            if (normalized.includes('conselho federal de psicologia')) return 'CFP';
-            if (normalized.includes('organizacao mundial da saude')) return 'OMS';
-            if (normalized.includes('associacao brasileira de psiquiatria')) return 'Setembro Amarelo®';
-            return source;
-          }).filter((value, index, values) => values.indexOf(value) === index).join(' • ')
-          : 'Ministério da Saúde • CFP • OMS • Setembro Amarelo®',
-        detalhe: `${resources.length || 0} materiais informativos gratuitos disponíveis em “Onde buscar ajuda”.`,
-        fonte_label: 'Materiais informativos gratuitos',
-        imagem: data.imagens_cards?.informacao_confiavel,
-        termos_busca: ['saúde mental', 'materiais', 'informação', 'Ministério da Saúde', 'CFP', 'OMS'],
-        observacao: 'Materiais informativos não substituem avaliação ou atendimento profissional.',
-        icone: '📚',
-        temas: ['Setembro Amarelo'],
-        tempo_slide: 15
-      }
-    ];
-  }
-
-  function appendPanelSupportItems(records, supportData, warn) {
-    const result = [...records];
-    const existingIds = new Set(result.map(item => String(item?.id || '')).filter(Boolean));
-    for (const item of buildPanelSupportItems(supportData)) {
-      if (!item.id || existingIds.has(String(item.id))) {
-        warn(`Curadoria site-only: apoio de painel ${item.id || '(sem ID)'} ignorado por colisão.`);
-        continue;
-      }
-      result.push({
-        ...cloneRecord(item),
-        origem: 'site-only',
-        site_only: true
-      });
-      existingIds.add(String(item.id));
     }
     return result;
   }
@@ -343,6 +250,7 @@
       livros: (Array.isArray(catalogs.livros) ? catalogs.livros : []).map(cloneRecord),
       cursos: (Array.isArray(catalogs.cursos) ? catalogs.cursos : []).map(cloneRecord),
       filmes: (Array.isArray(catalogs.filmes) ? catalogs.filmes : []).map(cloneRecord),
+      utilidade_publica: (Array.isArray(catalogs.utilidade_publica) ? catalogs.utilidade_publica : []).map(cloneRecord),
       apoio: null,
       curadoriasAtivas: []
     };
@@ -356,56 +264,55 @@
       result.apoio = {
         ...permanentCuration.complementos.servicos_apoio,
         curationId: permanentCuration.id,
-        campaignActive: isActive(permanentCuration, options.today || new Date()),
+        campaignActive: isPromoted(permanentCuration, options.today || new Date()),
         site_only: true
       };
-      result.filmes = appendPanelSupportItems(result.filmes, result.apoio, warn);
     }
 
-    for (const curation of payload.curadorias.filter(item => isActive(item, options.today || new Date()))) {
+    // A janela editorial controla a campanha, não a vida útil dos conteúdos.
+    for (const curation of payload.curadorias.filter(Boolean)) {
+      const active = isActive(curation, options.today || new Date());
+      const promoted = isPromoted(curation, options.today || new Date());
       const overlays = curation.overlays || {};
       const complements = curation.complementos || {};
       result.eventos = applyOverlayCollection(result.eventos, overlays.eventos, {
-        idField: 'id', label: 'evento', warn
+        idField: 'id', label: 'evento', curationId: curation.id, warn
       });
       result.livros = applyOverlayCollection(result.livros, overlays.livros, {
-        idField: 'id', label: 'livro', warn
+        idField: 'id', label: 'livro', curationId: curation.id, warn
       });
       result.cursos = applyOverlayCollection(result.cursos, overlays.cursos, {
-        idField: 'id_fonte', label: 'curso', warn
+        idField: 'id_fonte', label: 'curso', curationId: curation.id, warn
       });
       result.filmes = applyOverlayCollection(result.filmes, overlays.filmes, {
-        idField: 'id', label: 'filme', warn
+        idField: 'id', label: 'filme', curationId: curation.id, warn
       });
       result.eventos = appendComplements(result.eventos, complements.eventos, {
-        label: 'evento', warn,
+        label: 'evento', curationId: curation.id, warn,
         identifiers: item => [item?.id],
         include: item => eventIsCurrent(item, options.today || new Date())
       });
       result.livros = appendComplements(result.livros, complements.livros, {
-        label: 'livro', warn,
+        label: 'livro', curationId: curation.id, warn,
         identifiers: item => [item?.id]
       });
       result.cursos = appendComplements(result.cursos, complements.cursos, {
-        label: 'curso', warn,
+        label: 'curso', curationId: curation.id, warn,
         identifiers: item => [item?.id, item?.id_fonte]
       });
       result.filmes = appendComplements(result.filmes, complements.filmes, {
-        label: 'filme', warn,
+        label: 'filme', curationId: curation.id, warn,
         identifiers: item => [item?.id]
       });
-      if (complements.servicos_apoio && typeof complements.servicos_apoio === 'object') {
+      if (promoted && complements.servicos_apoio && typeof complements.servicos_apoio === 'object') {
         result.apoio = {
           ...complements.servicos_apoio,
           curationId: curation.id,
           campaignActive: true,
           site_only: true
         };
-        if (complements.servicos_apoio.permanente !== true) {
-          result.filmes = appendPanelSupportItems(result.filmes, result.apoio, warn);
-        }
       }
-      result.curadoriasAtivas.push(curation.id);
+      if (active) result.curadoriasAtivas.push(curation.id);
     }
     return result;
   }
@@ -434,10 +341,6 @@
     }
   }
 
-  function isPanelSupportMovie(movie) {
-    return movie?.painel_apoio === true;
-  }
-
   function setPanelSupportImageState(image, fallback, loaded) {
     if (!image) return;
     if (loaded) {
@@ -452,10 +355,6 @@
     if (fallback) fallback.hidden = false;
   }
 
-  function supportThemeIsActive(filters = {}) {
-    return normalizeLabel(filters?.theme) === 'setembro amarelo';
-  }
-
   function createPanelSupportSlide({ movie, index, total, template, helpers }) {
     const {
       buildSiteQr,
@@ -465,7 +364,7 @@
     const slide = template.content.firstElementChild.cloneNode(true);
     buildSiteQr(slide);
     slide.classList.add('support-slide');
-    slide.setAttribute('aria-label', `Informação de apoio: ${movie.titulo || 'Setembro Amarelo'}`);
+    slide.setAttribute('aria-label', `Informação de apoio: ${movie.titulo || 'Saúde Mental'}`);
 
     const seconds = slideDurationFor(movie);
     slide.style.setProperty('--slide-seconds', `${seconds}s`);
@@ -497,7 +396,7 @@
     if (campaign) {
       campaign.hidden = false;
       campaign.className = 'badge support-campaign';
-      campaign.textContent = 'SETEMBRO AMARELO';
+      campaign.textContent = 'SAÚDE MENTAL';
       campaign.removeAttribute('style');
       campaign.style.background = '#ffe27a';
       campaign.style.color = '#151308';
@@ -556,7 +455,7 @@
       fallback.style.background = 'radial-gradient(circle at 35% 28%, rgba(245,197,24,.32), transparent 34%), linear-gradient(145deg, #0b0b08 0%, #211d09 58%, #151308 100%)';
     }
     if (fallbackIcon) fallbackIcon.textContent = movie.icone || '💛';
-    if (fallbackLabel) fallbackLabel.textContent = 'Setembro Amarelo';
+    if (fallbackLabel) fallbackLabel.textContent = 'Saúde Mental';
     if (image && imageUrl) {
       image.alt = movie.titulo ? `Imagem de apoio: ${movie.titulo}` : 'Imagem de apoio';
       image.onload = () => setPanelSupportImageState(image, fallback, true);
@@ -622,7 +521,10 @@
     tags.className = 'film-tags';
     tags.setAttribute('aria-label', 'Tipo de conteúdo');
     appendText(tags, 'span', 'Informação');
-    appendText(tags, 'span', 'Utilidade pública');
+    appendText(tags, 'span', 'Utilidade Pública');
+    for (const area of Array.isArray(movie.areas_utilidade) ? movie.areas_utilidade : []) {
+      appendText(tags, 'span', area);
+    }
     body.appendChild(tags);
     const actions = document.createElement('div');
     actions.className = 'agenda-card-actions';
@@ -635,78 +537,6 @@
     body.appendChild(actions);
     article.append(media, body);
     return article;
-  }
-
-  function installPanelSupportAdapter() {
-    const films = root.contents?.films;
-    if (!films || films.__panelSupportAdapter === true) return false;
-
-    const originalFilter = films.filter;
-    const originalOptions = films.options;
-    const originalSampleForPanel = films.sampleForPanel;
-    const originalCreatePanelSlide = films.createPanelSlide;
-    const originalCreateAgendaCard = films.createAgendaCard;
-    if (![originalFilter, originalOptions, originalSampleForPanel, originalCreatePanelSlide, originalCreateAgendaCard].every(fn => typeof fn === 'function')) {
-      return false;
-    }
-
-    const culturalOnly = movies => (Array.isArray(movies) ? movies : []).filter(movie => !isPanelSupportMovie(movie));
-    const supportOnly = movies => (Array.isArray(movies) ? movies : []).filter(isPanelSupportMovie);
-
-    root.contents.films = Object.freeze({
-      ...films,
-      __panelSupportAdapter: true,
-      filter(movies, filters = {}, normalizeText) {
-        const cultural = originalFilter(culturalOnly(movies), filters, normalizeText);
-        const normalize = typeof normalizeText === 'function' ? normalizeText : normalizeLabel;
-        const needle = normalize(filters.query || '');
-        if (!needle) return cultural;
-        const matchingSupport = supportOnly(movies).filter(movie => normalize([
-          movie.titulo,
-          movie.descricao,
-          movie.destaque,
-          movie.detalhe,
-          ...(Array.isArray(movie.termos_busca) ? movie.termos_busca : [])
-        ].join(' ')).includes(needle));
-        return [...cultural, ...matchingSupport];
-      },
-      options(movies, field) {
-        return originalOptions(culturalOnly(movies), field);
-      },
-      sampleForPanel(movies, filters = {}, normalizeText, limit, sampleOptions = {}) {
-        const culturalPrevious = Array.isArray(sampleOptions?.previousItems)
-          ? sampleOptions.previousItems.filter(item => !isPanelSupportMovie(item))
-          : sampleOptions?.previousItems;
-        const cultural = originalSampleForPanel(
-          culturalOnly(movies),
-          filters,
-          normalizeText,
-          limit,
-          { ...sampleOptions, previousItems: culturalPrevious }
-        );
-        if (!supportThemeIsActive(filters)) return cultural;
-
-        const support = supportOnly(movies);
-        const combined = [];
-        const maximum = Math.max(cultural.length, support.length);
-        for (let index = 0; index < maximum; index += 1) {
-          if (support[index]) combined.push(support[index]);
-          if (cultural[index]) combined.push(cultural[index]);
-        }
-        return combined;
-      },
-      createPanelSlide(args) {
-        return isPanelSupportMovie(args?.movie)
-          ? createPanelSupportSlide(args)
-          : originalCreatePanelSlide(args);
-      },
-      createAgendaCard(movie, helpers) {
-        return isPanelSupportMovie(movie)
-          ? createAgendaSupportCard(movie)
-          : originalCreateAgendaCard(movie, helpers);
-      }
-    });
-    return true;
   }
 
   function mountSupportArea(data) {
@@ -867,15 +697,17 @@
     });
   }
 
-  installPanelSupportAdapter();
-
   root.siteCurations = Object.freeze({
     apply,
     bindSupportRequest,
-    buildPanelSupportItems,
+    createAgendaSupportCard,
+    createPanelSupportSlide,
     dateKey,
     eventIsCurrent,
     isActive,
+    isPromoted,
+    mergeCurationIds,
+    matchesCuration,
     isValidPayload,
     mergeLabels,
     mountSupportArea,
@@ -885,4 +717,151 @@
     safeImage,
     setPanelSupportImageState
   });
+
+  (() => {
+    const CURATION_QUERY_PARAM = 'curadoria';
+    const initialRequestedCuration = (() => {
+      try {
+        return String(new URL(window.location.href).searchParams.get(CURATION_QUERY_PARAM) || '').trim();
+      } catch {
+        return '';
+      }
+    })();
+    let pendingInitialCuration = initialRequestedCuration;
+    let curationsLoaded = false;
+    let enhancementScheduled = false;
+
+    function curationUrl(curationId = '') {
+      const url = new URL(window.location.href);
+      const id = String(curationId || '').trim();
+      if (id) url.searchParams.set(CURATION_QUERY_PARAM, id);
+      else url.searchParams.delete(CURATION_QUERY_PARAM);
+      return url;
+    }
+
+    function replaceCurationUrl(curationId = '') {
+      try {
+        const url = curationUrl(curationId);
+        if (url.href !== window.location.href) history.replaceState(history.state, '', url);
+      } catch {
+        /* A Agenda continua funcional mesmo sem sincronização de URL. */
+      }
+    }
+
+    async function copyText(value) {
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(value);
+          return true;
+        } catch {
+          /* Usa fallback compatível com navegadores mais antigos. */
+        }
+      }
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      let copied = false;
+      try {
+        copied = document.execCommand('copy');
+      } catch {
+        copied = false;
+      }
+      textarea.remove();
+      return copied;
+    }
+
+    async function shareCuration(button, select) {
+      const curationId = String(select?.value || '').trim();
+      if (!curationId) return;
+      const option = select.selectedOptions?.[0];
+      const title = String(option?.textContent || 'Curadoria do Mural Cultural').trim();
+      const url = curationUrl(curationId).href;
+
+      if (typeof navigator.share === 'function') {
+        try {
+          await navigator.share({
+            title,
+            text: 'Confira esta curadoria no Mural Cultural.',
+            url
+          });
+          return;
+        } catch (error) {
+          if (error?.name === 'AbortError') return;
+        }
+      }
+
+      const copied = await copyText(url);
+      if (!button?.isConnected) return;
+      const original = button.textContent;
+      button.textContent = copied ? 'Link copiado' : 'Copie o link da barra de endereço';
+      window.setTimeout(() => {
+        if (button.isConnected) button.textContent = original;
+      }, 2200);
+    }
+
+    function enhanceAgendaCurationControls() {
+      enhancementScheduled = false;
+      const select = document.querySelector('.agenda-curation');
+      if (!select) return;
+
+      const optionValues = new Set([...select.options].map(option => String(option.value || '')));
+      if (pendingInitialCuration) {
+        if (optionValues.has(pendingInitialCuration)) {
+          const requested = pendingInitialCuration;
+          pendingInitialCuration = '';
+          if (select.value !== requested) {
+            select.value = requested;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            return;
+          }
+        } else if (curationsLoaded && select.options.length > 1) {
+          pendingInitialCuration = '';
+          replaceCurationUrl(select.value);
+        }
+      } else {
+        replaceCurationUrl(select.value);
+      }
+
+      const label = select.closest('label');
+      if (!label?.parentElement) return;
+      let button = label.parentElement.querySelector('.agenda-curation-share');
+      if (!button) {
+        button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'agenda-section-action agenda-curation-share';
+        button.textContent = 'Compartilhar curadoria';
+        label.insertAdjacentElement('afterend', button);
+        button.addEventListener('click', () => shareCuration(button, select));
+      }
+      button.hidden = !select.value;
+    }
+
+    function scheduleEnhancement() {
+      if (enhancementScheduled) return;
+      enhancementScheduled = true;
+      queueMicrotask(enhanceAgendaCurationControls);
+    }
+
+    document.addEventListener('change', event => {
+      if (!event.target?.matches?.('.agenda-curation')) return;
+      replaceCurationUrl(event.target.value);
+      scheduleEnhancement();
+    }, true);
+
+    window.addEventListener('mural:curations-loaded', () => {
+      curationsLoaded = true;
+      scheduleEnhancement();
+    });
+
+    const app = document.getElementById('app');
+    if (app) {
+      const observer = new MutationObserver(scheduleEnhancement);
+      observer.observe(app, { childList: true, subtree: true });
+    }
+    scheduleEnhancement();
+  })();
 })();

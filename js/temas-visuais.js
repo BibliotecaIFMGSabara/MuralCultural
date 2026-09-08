@@ -1,39 +1,11 @@
 (() => {
   'use strict';
 
-  const STORAGE_KEY = 'mural:visual-theme';
   const BANNER_CLASS = 'campaign-profile-banner';
+  const BANNERS_ID = 'panel-profile-banners';
   const HELP_BUTTON_CLASS = 'campaign-help-button';
-  const CAMPAIGN_LAYOUT_STYLE_ID = 'campaign-layout-overrides';
-
-  function ensureCampaignLayoutStyles() {
-    if (document.getElementById(CAMPAIGN_LAYOUT_STYLE_ID)) return;
-    const style = document.createElement('style');
-    style.id = CAMPAIGN_LAYOUT_STYLE_ID;
-    style.textContent = `
-      /* O botão acompanha a altura real do banner: mesma porcentagem e mesmos limites. */
-      html[data-visual-help="true"] body.panel-mode .media > .campaign-help-button {
-        top: calc(1.25% + clamp(64px, 14.285%, 148px) + 8px);
-      }
-
-      /* O tooltip do botão-banner fica depois do atalho de ajuda, sem disputar o mesmo espaço. */
-      html[data-visual-help="true"] body.panel-mode .campaign-profile-tooltip {
-        top: calc(100% + 60px);
-      }
-
-      /* Sem URL utilizável não deve restar quadrado, QR ou chamada de ação vazia. */
-      .qr-wrap[hidden] {
-        display: none !important;
-      }
-
-      @media (max-width: 720px) {
-        html[data-visual-help="true"] body.panel-mode .media > .campaign-help-button {
-          top: calc(1% + clamp(52px, 15%, 96px) + 8px);
-        }
-      }
-    `;
-    document.head.appendChild(style);
-  }
+  // Mantém o mesmo conjunto e seus listeners quando app.js substitui o slide.
+  let bannerContainer = null;
 
   function dateKey(date = new Date()) {
     const year = date.getFullYear();
@@ -48,43 +20,17 @@
     return 'padrao';
   }
 
-  const DEFAULT_THEME = seasonalDefaultTheme();
-
   const BASE_THEMES = [
-    {
-      id: 'padrao',
-      label: 'Padrão',
-      description: 'Visual atual do Mural',
-      swatch: 'is-default'
-    },
-    {
-      id: 'agosto-lilas-glow',
-      label: 'Agosto Lilás Glow',
-      description: 'Roxo noturno, brilhos difusos e laço',
-      swatch: 'is-lilas',
-      themeColor: '#120626',
-      panelProfile: 'agosto-lilas-2026',
-      profileLabel: 'Agosto Lilás',
-      banner: {
-        src: 'imagens/curadorias/agosto-lilas-banner.png',
-        alt: 'Agosto Lilás'
-      }
-    }
+    { id: 'padrao', label: 'Padrão' },
+    { id: 'agosto-lilas-glow', label: 'Agosto Lilás Glow', themeColor: '#120626' }
   ];
 
   let THEMES = [...BASE_THEMES];
   const allowed = new Set(THEMES.map(theme => theme.id));
-  let selectedTheme = null;
   let themeRegistrationVersion = 0;
   const stylesheetLoads = new Map();
   const root = document.documentElement;
   const defaultThemeColor = document.querySelector('meta[name="theme-color"]')?.content || '#07111f';
-
-  function escapeMarkup(value) {
-    return String(value || '').replace(/[&<>"']/g, char => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    })[char]);
-  }
 
   function loadCurationStylesheet(path) {
     if (stylesheetLoads.has(path)) return stylesheetLoads.get(path);
@@ -120,6 +66,7 @@
   function registerLoadedThemes() {
     const curations = window.MuralCultural?.loadedCurations;
     if (!Array.isArray(curations)) return;
+    registerPanelBanners(curations);
     const version = ++themeRegistrationVersion;
     const nextThemes = [...BASE_THEMES];
     const ids = new Set(nextThemes.map(theme => theme.id));
@@ -131,34 +78,23 @@
       let stylesheet = '';
       if (profile.stylesheet !== undefined) {
         const curationId = String(curation.id);
-        if (!/^[a-z0-9][a-z0-9-]*$/.test(curationId) ||
+        if (!/^[a-z0-9][a-z0-9._-]*$/.test(curationId) || curationId.includes('..') ||
             profile.stylesheet !== `css/curadorias/${curationId}.css`) {
           console.warn(`Stylesheet inválido para a curadoria ${curationId}; tema não registrado.`);
           continue;
         }
         stylesheet = profile.stylesheet;
       }
-      let banner = null;
-      if (profile.banner?.src) {
-        try {
-          const url = new URL(profile.banner.src, window.location.href);
-          if (['http:', 'https:'].includes(url.protocol)) {
-            banner = { src: url.href, alt: String(profile.banner.alt || curation.nome || '') };
-          }
-        } catch (_) {}
-      }
       nextThemes.push({
         id,
         label: String(profile.label || curation.nome || id),
-        description: String(profile.description || ''),
-        swatch: /^[a-z][a-z0-9-]*$/.test(profile.swatch || '') ? profile.swatch : 'is-default',
         panelProfile: curation.perfil_painel ? String(curation.id) : '',
         profileLabel: String(profile.profileLabel || curation.nome || ''),
         helpLabel: String(profile.helpLabel || ''),
         themeColor: String(profile.themeColor || defaultThemeColor),
-        banner,
         stylesheet,
         auto_ativar: profile.auto_ativar === true,
+        curation,
         start: String(curation.ativo_de || ''),
         end: String(curation.ativo_ate || '')
       });
@@ -174,9 +110,7 @@
     const refresh = () => {
       if (version !== themeRegistrationVersion) return;
       const ready = nextThemes.filter(theme => !theme.stylesheet || stylesheetLoads.get(theme.stylesheet)?.loaded === true);
-      const pending = new Set(nextThemes.filter(theme => theme.stylesheet &&
-        stylesheetLoads.get(theme.stylesheet)?.loaded === null).map(theme => theme.id));
-      updateRegisteredThemes(ready, pending);
+      updateRegisteredThemes(ready);
     };
     for (const path of paths) {
       const entry = loadCurationStylesheet(path);
@@ -185,47 +119,33 @@
     refresh();
   }
 
-  function updateRegisteredThemes(nextThemes, pending = new Set()) {
+  function updateRegisteredThemes(nextThemes) {
     THEMES = nextThemes;
     allowed.clear();
     THEMES.forEach(theme => allowed.add(theme.id));
-    const current = dateKey();
-    const automatic = THEMES.find(theme => theme.auto_ativar &&
-      /^\d{4}-\d{2}-\d{2}$/.test(theme.start) && /^\d{4}-\d{2}-\d{2}$/.test(theme.end) &&
-      current >= theme.start && current <= theme.end
-    );
-    let next = automatic?.id || DEFAULT_THEME;
-    let saved = selectedTheme;
-    try { saved = saved || localStorage.getItem(STORAGE_KEY); } catch (_) {}
-    if (saved) {
-      next = allowed.has(saved) ? saved : 'padrao';
-      if (!allowed.has(saved) && !pending.has(saved)) {
-        selectedTheme = 'padrao';
-        try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
-      }
+    syncExperience();
+  }
+
+  function promotionAllowsTheme(theme) {
+    return !theme.curation?.promocao_painel ||
+      window.MuralCultural.siteCurations.isPromoted(theme.curation);
+  }
+
+  function automaticTheme() {
+    const profile = activePanelProfile();
+    if (profile) {
+      const selectedTheme = THEMES.find(theme => theme.panelProfile === profile);
+      return selectedTheme && promotionAllowsTheme(selectedTheme) && panelProfileMatchesCurrentSlide(profile) ? selectedTheme.id : 'padrao';
     }
-    // Reconstrói apenas as opções; listeners e estado aberto do seletor são preservados.
-    const panel = document.getElementById('visual-theme-panel');
-    const toggle = document.querySelector('.visual-theme-toggle');
-    if (panel && toggle) populateThemeOptions(panel.querySelector('.visual-theme-options'), panel, toggle);
-    document.querySelectorAll(`.${BANNER_CLASS}`).forEach(banner => banner.remove());
-    applyTheme(next, { persist: false });
-  }
 
-  function readTheme() {
-    const current = root.dataset.visualTheme;
-    if (current && allowed.has(current)) return current;
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved && allowed.has(saved)) return saved;
-    } catch (_) {}
-    return DEFAULT_THEME;
-  }
-
-  function persistTheme(theme) {
-    try {
-      localStorage.setItem(STORAGE_KEY, theme);
-    } catch (_) {}
+    // Temas editoriais automáticos acompanham o item da própria curadoria.
+    // A janela de datas continua válida, mas não colore itens sem relação com ela.
+    const current = dateKey();
+    const contextual = THEMES.find(theme => theme.auto_ativar && theme.panelProfile && promotionAllowsTheme(theme) &&
+      (!theme.start || current >= theme.start) && (!theme.end || current <= theme.end) &&
+      panelProfileMatchesCurrentSlide(theme.panelProfile)
+    );
+    return contextual?.id || seasonalDefaultTheme();
   }
 
   function updateBrowserColor(theme) {
@@ -238,77 +158,236 @@
     return root.dataset.panelProfile || '';
   }
 
+  function normalizeContentKey(value = '') {
+    return String(value)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  function curationTitleKeys(curation) {
+    const keys = new Set();
+    const add = value => {
+      const key = normalizeContentKey(value);
+      if (key) keys.add(key);
+    };
+
+    const complements = curation?.complementos;
+    if (complements && typeof complements === 'object') {
+      for (const collection of Object.values(complements)) {
+        if (!Array.isArray(collection)) continue;
+        for (const item of collection) add(item?.titulo);
+      }
+    }
+
+    const overlays = curation?.overlays;
+    if (overlays && typeof overlays === 'object') {
+      for (const collection of Object.values(overlays)) {
+        if (!collection || typeof collection !== 'object' || Array.isArray(collection)) continue;
+        for (const overlay of Object.values(collection)) {
+          add(overlay?.titulo_esperado);
+          add(overlay?.titulo);
+          add(overlay?.fallback?.titulo);
+        }
+      }
+    }
+
+    return keys;
+  }
+
+  function visibleSlideTitle(slide) {
+    const selectors = [
+      '.book-copy:not([hidden]) .book-title',
+      '.event-copy:not([hidden]) .event-title',
+      '.book-title',
+      '.event-title'
+    ];
+    for (const selector of selectors) {
+      const text = slide?.querySelector(selector)?.textContent;
+      const key = normalizeContentKey(text);
+      if (key) return key;
+    }
+    return '';
+  }
+
+  function visibleSlideThemeKeys(slide) {
+    return new Set(
+      [...(slide?.querySelectorAll('.book-themes > *') || [])]
+        .map(element => normalizeContentKey(element.textContent))
+        .filter(Boolean)
+    );
+  }
+
+  function bannerMatchesSlide(banner, slide) {
+    if (!banner || !slide) return false;
+    const profileId = banner.dataset.panelProfile || '';
+    if (banner._curation?.promocao_painel) {
+      if (!window.MuralCultural.siteCurations.isPromoted(banner._curation)) return false;
+      let ids = [];
+      try { ids = JSON.parse(slide.dataset.curadoriaIds || '[]'); } catch (_) { /* Sem associação. */ }
+      return window.MuralCultural.siteCurations.mergeCurationIds(ids).includes(profileId);
+    }
+    if (slide.classList.contains('support-slide') && root.dataset.siteCurationHelp === profileId) {
+      return true;
+    }
+
+    const title = visibleSlideTitle(slide);
+    if (title && banner._curationTitleKeys?.has(title)) return true;
+
+    const themeKey = banner._curationThemeKey || '';
+    return Boolean(themeKey && visibleSlideThemeKeys(slide).has(themeKey));
+  }
+
   function syncBannerSelection(banner) {
     const active = banner.dataset.panelProfile === activePanelProfile();
     const profileLabel = banner.dataset.profileLabel || 'temático';
-    const label = active ? `Desativar perfil ${profileLabel}` : `Ativar perfil ${profileLabel}`;
-    banner.classList.toggle('is-profile-active', active);
+    const label = banner.disabled ? `Perfil ${profileLabel} fora do período de disponibilidade`
+      : active ? `Desativar perfil ${profileLabel}` : `Ativar perfil ${profileLabel}`;
+    if (banner.classList.contains('is-profile-active') !== active) {
+      banner.classList.toggle('is-profile-active', active);
+    }
     banner.setAttribute('aria-pressed', String(active));
     banner.setAttribute('aria-label', label);
-    const tooltip = banner.querySelector('.campaign-profile-tooltip');
-    if (tooltip) tooltip.textContent = label;
+    banner.title = label;
   }
 
-  function ensureBanner(media, theme) {
-    let banner = media.querySelector(`.${BANNER_CLASS}`);
-    if (banner && banner.dataset.panelProfile !== theme.panelProfile) {
-      banner.remove();
-      banner = null;
+  function registerPanelBanners(curations) {
+    let container = bannerContainer;
+    if (!container) {
+      container = document.createElement('section');
+      container.id = BANNERS_ID;
+      container.className = 'campaign-profile-selectors';
+      container.setAttribute('aria-label', 'Perfis de conteúdo');
+      container.hidden = true;
+      const options = document.createElement('div');
+      options.className = 'campaign-profile-options';
+      options.setAttribute('role', 'group');
+      options.setAttribute('aria-label', 'Selecionar perfil de conteúdo');
+      container.appendChild(options);
+      bannerContainer = container;
     }
-    if (banner) {
+    const options = container.querySelector('.campaign-profile-options');
+    options.replaceChildren();
+    const ids = new Set();
+    for (const curation of curations) {
+      const profile = curation?.perfil_painel;
+      if (!curation?.id || !profile?.banner?.src || ids.has(curation.id)) continue;
+      let src;
+      try {
+        const url = new URL(profile.banner.src, window.location.href);
+        if (!['http:', 'https:'].includes(url.protocol)) continue;
+        src = url.href;
+      } catch (_) { continue; }
+      const banner = document.createElement('button');
+      banner.type = 'button';
+      banner.className = BANNER_CLASS;
+      banner.dataset.panelProfile = String(curation.id);
+      banner.dataset.profileLabel = String(curation.nome || curation.id);
+      banner._curation = curation;
+      banner._curationTitleKeys = curationTitleKeys(curation);
+      banner._curationThemeKey = normalizeContentKey(curation.tema);
+      const today = dateKey();
+      banner.disabled = Boolean(
+        (curation.ativo_de && today < curation.ativo_de) ||
+        (curation.ativo_ate && today > curation.ativo_ate)
+      );
+      const image = document.createElement('img');
+      image.className = 'campaign-profile-banner-image';
+      image.src = src;
+      image.alt = String(profile.banner.alt || curation.nome || curation.id);
+      image.decoding = 'async';
+      const check = document.createElement('span');
+      check.className = 'campaign-profile-check';
+      check.setAttribute('aria-hidden', 'true');
+      check.textContent = '✓';
+      banner.append(image, check);
+      // Botão nativo: clique, Enter e Espaço usam o mesmo evento, sem duplicação.
+      banner.addEventListener('click', () => {
+        window.dispatchEvent(new CustomEvent('mural:panel-profile-request', {
+          detail: { profile: banner.dataset.panelProfile }
+        }));
+        // A troca do slide pode desconectar o botão durante o clique por teclado.
+        if (banner.isConnected) banner.focus({ preventScroll: true });
+      });
       syncBannerSelection(banner);
-      return banner;
+      options.appendChild(banner);
+      ids.add(curation.id);
     }
-
-    banner = document.createElement('button');
-    banner.type = 'button';
-    banner.className = `${BANNER_CLASS} campaign-profile-badge campaign-${theme.id}-badge`;
-    banner.dataset.panelProfile = theme.panelProfile;
-    banner.dataset.profileLabel = theme.profileLabel;
-    banner.innerHTML = `
-      <img class="campaign-profile-banner-image" src="${escapeMarkup(theme.banner.src)}" alt="${escapeMarkup(theme.banner.alt)}" decoding="async">
-      <span class="campaign-profile-check" aria-hidden="true">✓</span>
-      <span class="campaign-profile-tooltip" role="tooltip"></span>`;
-    const togglePanelProfile = () => {
-      window.dispatchEvent(new CustomEvent('mural:panel-profile-request', {
-        detail: { profile: banner.dataset.panelProfile }
-      }));
-    };
-    banner.addEventListener('click', togglePanelProfile);
-    banner.addEventListener('keydown', event => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      event.preventDefault();
-      togglePanelProfile();
-    });
-    syncBannerSelection(banner);
-    media.appendChild(banner);
-    return banner;
+    syncBanners();
   }
 
-  function syncBanner(theme) {
-    const themeConfig = THEMES.find(item => item.id === theme);
-    const active = Boolean(
-      themeConfig?.banner && themeConfig.panelProfile && document.body.classList.contains('panel-mode')
-    );
-    document.querySelectorAll('.slide .media').forEach(media => {
-      const banner = media.querySelector(`.${BANNER_CLASS}`);
-      if (active) ensureBanner(media, themeConfig);
-      else if (banner) banner.remove();
-    });
+  function currentPanelMedia() {
+    if (!document.body.classList.contains('panel-mode')) return null;
+    return [...document.querySelectorAll('#app > .slide:not([hidden]):not([aria-hidden="true"]) > .media')]
+      .find(element => element.getClientRects().length > 0) || null;
+  }
+
+  function panelProfileMatchesCurrentSlide(profileId) {
+    if (!profileId || !bannerContainer) return false;
+    const media = currentPanelMedia();
+    const slide = media?.closest('.slide') || null;
+    if (!slide) return false;
+    const banner = [...bannerContainer.querySelectorAll(`.${BANNER_CLASS}`)]
+      .find(item => item.dataset.panelProfile === profileId);
+    return Boolean(banner && bannerMatchesSlide(banner, slide));
+  }
+
+  function syncBanners() {
+    const container = bannerContainer;
+    const banners = [...(container?.querySelectorAll(`.${BANNER_CLASS}`) || [])];
+    const media = currentPanelMedia();
+    const slide = media?.closest('.slide') || null;
+    let visibleCount = 0;
+
+    for (const banner of banners) {
+      const promotional = Boolean(banner._curation?.promocao_painel);
+      const profile = activePanelProfile();
+      const visualReady = !promotional || THEMES.some(theme => theme.panelProfile === banner.dataset.panelProfile);
+      const selected = !promotional || !profile || profile === banner.dataset.panelProfile;
+      const visibleForItem = Boolean(visualReady && selected && slide && bannerMatchesSlide(banner, slide));
+      banner.hidden = !visibleForItem;
+      if (visibleForItem) visibleCount += 1;
+      syncBannerSelection(banner);
+    }
+
+    const visible = visibleCount > 0 && Boolean(media);
+    if (container) {
+      container.hidden = !visible;
+      if (visible && container.parentElement !== media) media.appendChild(container);
+      else if (!visible) container.remove();
+    }
   }
 
   function syncHelpButton(theme) {
     const themeConfig = THEMES.find(item => item.id === theme);
+    const selectors = bannerContainer;
+    const matchingBanner = themeConfig?.panelProfile && selectors
+      ? [...selectors.querySelectorAll(`.${BANNER_CLASS}`)]
+        .find(item => item.dataset.panelProfile === themeConfig.panelProfile && !item.hidden)
+      : null;
+    const bannerVisible = Boolean(
+      matchingBanner && selectors && !selectors.hidden && selectors.isConnected
+    );
     const available = Boolean(
-      themeConfig?.helpLabel && themeConfig.panelProfile &&
+      themeConfig?.helpLabel && themeConfig.panelProfile && bannerVisible &&
       root.dataset.siteCurationHelp === themeConfig.panelProfile
     );
     root.dataset.visualHelp = String(available);
-    let button = document.querySelector(`.${HELP_BUTTON_CLASS}`);
+    let button = document.querySelector(`.${HELP_BUTTON_CLASS}`) ||
+      selectors?.querySelector(`.${HELP_BUTTON_CLASS}`);
+
     if (!available) {
       button?.remove();
+      if (selectors) {
+        selectors.style.flexDirection = '';
+        selectors.style.alignItems = '';
+        selectors.style.gap = '';
+      }
       return;
     }
+
     if (!button) {
       button = document.createElement('button');
       button.type = 'button';
@@ -319,123 +398,34 @@
         }));
       });
     }
-    const bannerMedia = document.querySelector(`.${BANNER_CLASS}`)?.closest('.media');
-    const container = bannerMedia || document.body;
-    if (button.parentElement !== container) container.appendChild(button);
+
+    // Ajuda e banner são uma unidade visual da curadoria: o botão nunca vive sozinho.
+    if (button.parentElement !== selectors) selectors.appendChild(button);
+    selectors.style.flexDirection = 'column';
+    selectors.style.alignItems = 'center';
+    selectors.style.gap = '8px';
+    button.style.position = 'static';
+    button.style.top = '';
+    button.style.right = '';
+    button.style.zIndex = '';
+    button.style.alignSelf = 'center';
+
     button.textContent = themeConfig.helpLabel;
     button.setAttribute('aria-label', `${themeConfig.helpLabel} — ${themeConfig.profileLabel || themeConfig.label}`);
   }
 
-  function syncThemeExperience(theme) {
-    syncBanner(theme);
-    syncHelpButton(theme);
-  }
-
-  function syncOptions(theme) {
-    document.querySelectorAll('[data-visual-theme-option]').forEach(button => {
-      button.setAttribute('aria-pressed', String(button.dataset.visualThemeOption === theme));
-    });
-  }
-
-  function applyTheme(theme, { persist = true } = {}) {
-    const next = allowed.has(theme) ? theme : DEFAULT_THEME;
+  function syncExperience() {
+    // Primeiro sincroniza a curadoria visível; depois visual e ajuda derivam dela.
+    syncBanners();
+    const requested = automaticTheme();
+    const next = allowed.has(requested) ? requested : 'padrao';
+    const changed = root.dataset.visualTheme !== next;
     root.dataset.visualTheme = next;
-    if (persist) {
-      selectedTheme = next;
-      persistTheme(next);
-    }
     updateBrowserColor(next);
-    syncOptions(next);
-    syncThemeExperience(next);
-    window.dispatchEvent(new CustomEvent('mural:visual-theme-change', { detail: { theme: next } }));
-  }
-
-  function paletteIcon() {
-    return `
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-        <path d="M12 3a9 9 0 1 0 0 18h1.2a1.8 1.8 0 0 0 1.3-3l-.25-.25a1.6 1.6 0 0 1 1.13-2.73H18a3 3 0 0 0 3-3A9 9 0 0 0 12 3Z"></path>
-        <circle cx="7.5" cy="10" r="1"></circle>
-        <circle cx="10" cy="6.8" r="1"></circle>
-        <circle cx="14.2" cy="7" r="1"></circle>
-        <circle cx="16.5" cy="10.2" r="1"></circle>
-      </svg>`;
-  }
-
-  function populateThemeOptions(options, panel, toggle) {
-    options.replaceChildren();
-    THEMES.forEach(theme => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'visual-theme-option';
-      button.dataset.visualThemeOption = theme.id;
-      button.setAttribute('aria-pressed', 'false');
-      button.innerHTML = `
-        <span class="visual-theme-swatch ${escapeMarkup(theme.swatch)}" aria-hidden="true"></span>
-        <span class="visual-theme-option-copy">
-          <span class="visual-theme-option-title">${escapeMarkup(theme.label)}</span>
-          <span class="visual-theme-option-description">${escapeMarkup(theme.description)}</span>
-        </span>
-        <span class="visual-theme-check" aria-hidden="true">✓</span>`;
-      button.addEventListener('click', () => {
-        applyTheme(theme.id);
-        panel.hidden = true;
-        toggle.setAttribute('aria-expanded', 'false');
-        toggle.focus();
-      });
-      options.appendChild(button);
-    });
-  }
-
-  function buildSwitcher() {
-    if (document.querySelector('.visual-theme-switcher')) return;
-
-    const wrapper = document.createElement('aside');
-    wrapper.className = 'visual-theme-switcher';
-    wrapper.setAttribute('aria-label', 'Aparência do Mural');
-
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'visual-theme-toggle';
-    toggle.title = 'Alterar aparência';
-    toggle.setAttribute('aria-label', 'Alterar aparência do Mural');
-    toggle.setAttribute('aria-expanded', 'false');
-    toggle.setAttribute('aria-controls', 'visual-theme-panel');
-    toggle.innerHTML = paletteIcon();
-
-    const panel = document.createElement('section');
-    panel.id = 'visual-theme-panel';
-    panel.className = 'visual-theme-panel';
-    panel.hidden = true;
-    panel.innerHTML = `
-      <h2 class="visual-theme-heading">Aparência</h2>
-      <p class="visual-theme-help">Muda somente o visual. O filtro de conteúdo continua independente.</p>
-      <div class="visual-theme-options"></div>`;
-
-    const options = panel.querySelector('.visual-theme-options');
-    populateThemeOptions(options, panel, toggle);
-
-    toggle.addEventListener('click', () => {
-      const open = panel.hidden;
-      panel.hidden = !open;
-      toggle.setAttribute('aria-expanded', String(open));
-      if (open) panel.querySelector('[aria-pressed="true"]')?.focus();
-    });
-
-    document.addEventListener('pointerdown', event => {
-      if (panel.hidden || wrapper.contains(event.target)) return;
-      panel.hidden = true;
-      toggle.setAttribute('aria-expanded', 'false');
-    });
-
-    document.addEventListener('keydown', event => {
-      if (event.key !== 'Escape' || panel.hidden) return;
-      panel.hidden = true;
-      toggle.setAttribute('aria-expanded', 'false');
-      toggle.focus();
-    });
-
-    wrapper.append(panel, toggle);
-    document.body.appendChild(wrapper);
+    syncHelpButton(next);
+    if (changed) {
+      window.dispatchEvent(new CustomEvent('mural:visual-theme-change', { detail: { theme: next } }));
+    }
   }
 
   let scheduled = false;
@@ -444,30 +434,28 @@
     scheduled = true;
     requestAnimationFrame(() => {
       scheduled = false;
-      const theme = readTheme();
-      syncOptions(theme);
-      syncThemeExperience(theme);
+      syncExperience();
     });
   }
 
   const observer = new MutationObserver(scheduleSync);
 
   window.addEventListener('mural:curations-loaded', registerLoadedThemes);
-  window.addEventListener('mural:panel-profile-change', scheduleSync);
+  window.addEventListener('mural:panel-profile-change', syncExperience);
   window.addEventListener('mural:site-curation-change', scheduleSync);
 
   function start() {
-    ensureCampaignLayoutStyles();
-    buildSwitcher();
+    try { localStorage.removeItem('mural:visual-theme'); } catch (_) {}
     if (Array.isArray(window.MuralCultural?.loadedCurations)) registerLoadedThemes();
-    else applyTheme(readTheme(), { persist: false });
+    else syncExperience();
 
     observer.observe(document.body, {
-      childList: true,
-      subtree: true,
       attributes: true,
       attributeFilter: ['class']
     });
+    // Observa só a troca do conteúdo principal, sem reagir às próprias atualizações.
+    const app = document.getElementById('app');
+    if (app) observer.observe(app, { childList: true });
   }
 
   if (document.readyState === 'loading') {

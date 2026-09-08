@@ -17,9 +17,9 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="stylesheet" href="css/styles.css?v=71">
   <link rel="stylesheet" href="css/eventos-manuais-ui.css?v=43">
-  <link rel="stylesheet" href="css/concursos-mural.css?v=2">
-  <link rel="stylesheet" href="css/temas-visuais.css?v=8">
-  <script src="js/tema-visual-boot.js?v=3"></script>
+  <link rel="stylesheet" href="css/concursos-mural.css?v=3">
+  <link rel="stylesheet" href="css/temas-visuais.css?v=11">
+  <script src="js/tema-visual-boot.js?v=4"></script>
 <style>
     .slide .badge.course-online {
       background: #4f9cf9;
@@ -267,6 +267,10 @@
                 <input class="panel-module-films" type="checkbox" checked>
                 <span>Filmes</span>
               </label>
+              <label class="panel-module-toggle">
+                <input class="panel-module-utility" type="checkbox">
+                <span>Utilidade Pública</span>
+              </label>
             </div>
           </section>
 
@@ -446,6 +450,24 @@
             </div>
           </section>
 
+          <section class="panel-config-section panel-utility-section" hidden>
+            <div class="panel-section-heading">
+              <div>
+                <h3>Utilidade Pública</h3>
+                <p>Informações de apoio e serviços, respeitando o tema selecionado.</p>
+              </div>
+              <label class="panel-weight-field">
+                <span>Frequência</span>
+                <select class="panel-utility-weight">
+                  <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                  <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+                  <option value="7">7</option><option value="8">8</option><option value="9">9</option>
+                  <option value="10">10</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
           <p class="panel-frequency-help">A frequência define o peso de cada módulo na rotação. Ex.: Eventos 5 + Livros 1 reproduz aproximadamente cinco eventos para cada sugestão de leitura.</p>
 
           <div class="filter-actions">
@@ -464,9 +486,9 @@
   <script src="js/conteudos/cursos.js?v=3" defer></script>
   <script src="js/conteudos/concursos.js?v=2" defer></script>
   <script src="js/conteudos/filmes.js?v=6" defer></script>
-  <script src="js/curadorias-site.js?v=4" defer></script>
-  <script src="js/app.js?v=91" defer></script>
-  <script src="js/temas-visuais.js?v=8" defer></script>
+  <script src="js/curadorias-site.js?v=8" defer></script>
+  <script src="js/app.js?v=97" defer></script>
+  <script src="js/temas-visuais.js?v=11" defer></script>
   <script src="js/eventos-manuais-ui.js?v=44" defer></script>
   <script src="js/ios-install.js?v=1" defer></script>
 
