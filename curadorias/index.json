@@ -4,6 +4,15 @@
   "descricao": "Curadorias publicadas no Mural Cultural.",
   "curadorias": [
     {
+      "id": "saude-mental",
+      "arquivo": "curadorias/saude-mental.json",
+      "nome": "Saúde Mental",
+      "tema": "Saúde Mental",
+      "ordem": 10,
+      "source_sha": "b6168f0c5efff1a546f6432a95d970170d852e29",
+      "publicado_em": "2026-09-11T02:41:48+00:00"
+    },
+    {
       "id": "vestibular-ufmg-seriado-2026",
       "arquivo": "curadorias/vestibular-ufmg-seriado-2026.json",
       "nome": "Seriado UFMG 2026 — Obras para Vestibular",
