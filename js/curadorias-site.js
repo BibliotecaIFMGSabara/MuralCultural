@@ -63,8 +63,8 @@
     const id = mergeCurationIds(curation?.id)[0];
     if (!id) return false;
     if (mergeCurationIds(item?.curadoria_ids).includes(id)) return true;
-    // Compatibilidade com as curadorias legadas; permanentes usam associação explícita.
-    if (curation.permanente) return false;
+    // Temas são apenas fallback legado; membros formais usam associação explícita.
+    if (curation.permanente || curation.membros) return false;
     const theme = normalizeLabel(curation.perfil_painel?.configuracao?.theme || curation.tema || curation.theme);
     return Boolean(theme && (Array.isArray(item?.temas) ? item.temas : [])
       .some(value => normalizeLabel(value) === theme));
@@ -84,6 +84,38 @@
       curadoria_ids: mergeCurationIds(record?.curadoria_ids),
       temas: Array.isArray(record?.temas) ? [...record.temas] : record?.temas
     };
+  }
+
+  function editorialFields(editorial) {
+    const fields = {};
+    if (!editorial || typeof editorial !== 'object' || Array.isArray(editorial)) return fields;
+    for (const field of ['pergunta_curiosidade', 'texto_apoio']) {
+      if (typeof editorial[field] === 'string') fields[field] = editorial[field];
+    }
+    if (editorial.vestibular && typeof editorial.vestibular === 'object' && !Array.isArray(editorial.vestibular)) {
+      fields.vestibular = structuredClone(editorial.vestibular);
+    }
+    return fields;
+  }
+
+  function storeEditorialOverlay(target, overlay, options) {
+    if (!options.editorial) return;
+    const curationId = mergeCurationIds(options.curationId)[0];
+    const editorial = editorialFields(overlay?.editorial);
+    if (!curationId || !Object.keys(editorial).length) return;
+    target.curadoria_overlays = {
+      ...target.curadoria_overlays,
+      [curationId]: editorial
+    };
+  }
+
+  function effectiveItemForCuration(item, curationId) {
+    const effective = structuredClone(item);
+    const id = mergeCurationIds(curationId)[0];
+    if (!id || !mergeCurationIds(item?.curadoria_ids).includes(id)) return effective;
+    const overlays = item?.curadoria_overlays;
+    if (!overlays || !Object.prototype.hasOwnProperty.call(overlays, id)) return effective;
+    return Object.assign(effective, editorialFields(overlays[id]));
   }
 
   const EXTERNAL_URL_FIELDS = Object.freeze([
@@ -179,6 +211,52 @@
     return !end || !current || end >= current;
   }
 
+  const MEMBER_ID_FIELDS = Object.freeze({
+    eventos: 'id',
+    livros: 'id',
+    cursos: 'id_fonte',
+    filmes: 'id',
+    utilidade_publica: 'id'
+  });
+
+  function applyMembers(catalogs, curation, warn) {
+    const members = curation.membros;
+    if (members === undefined) return;
+    if (!members || typeof members !== 'object' || Array.isArray(members)) {
+      warn(`Curadoria site-only: membros inválidos para ${curation.id}; associações ignoradas.`);
+      return;
+    }
+
+    for (const [collection, idField] of Object.entries(MEMBER_ID_FIELDS)) {
+      const identifiers = members[collection];
+      if (identifiers === undefined) continue;
+      if (!Array.isArray(identifiers)) {
+        warn(`Curadoria site-only: membros.${collection} deve ser uma lista em ${curation.id}; associações ignoradas.`);
+        continue;
+      }
+      const recordsById = new Map(catalogs[collection]
+        .filter(item => item?.[idField] !== undefined && item?.[idField] !== null)
+        .map(item => [String(item[idField]), item]));
+      const seen = new Set();
+      for (const identifier of identifiers) {
+        if (!((typeof identifier === 'string' && identifier.trim()) ||
+          (typeof identifier === 'number' && Number.isFinite(identifier)))) {
+          warn(`Curadoria site-only: ID inválido em membros.${collection} de ${curation.id}; associação ignorada.`);
+          continue;
+        }
+        const id = String(identifier);
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const target = recordsById.get(id);
+        if (!target) {
+          warn(`Curadoria site-only: membro ${collection} ${id} de ${curation.id} não encontrado no catálogo canônico.`);
+          continue;
+        }
+        target.curadoria_ids = mergeCurationIds(target.curadoria_ids, curation.id);
+      }
+    }
+  }
+
   function applyOverlayCollection(records, overlays, options) {
     const result = (Array.isArray(records) ? records : []).map(cloneRecord);
     const entries = overlays && typeof overlays === 'object' ? Object.entries(overlays) : [];
@@ -189,14 +267,18 @@
         const fallbackId = String(fallback?.[options.idField] || '');
         const fallbackTitleMatches = !overlay?.titulo_esperado ||
           normalizeLabel(fallback?.titulo) === normalizeLabel(overlay.titulo_esperado);
-        if (fallback && typeof fallback === 'object' && fallbackId === String(identifier) && fallbackTitleMatches) {
+        if (options.associateByOverlay !== false && fallback && typeof fallback === 'object' &&
+          fallbackId === String(identifier) && fallbackTitleMatches) {
           const item = {
             ...sanitizeUntrustedRecord(fallback, options.warn, `${options.label} ${identifier}`),
             origem: 'site-only',
             site_only: true
           };
           item.temas = mergeLabels(item.temas, overlay?.temas);
-          item.curadoria_ids = mergeCurationIds(item.curadoria_ids, overlay?.curadoria_ids, options.curationId);
+          if (options.associateByOverlay !== false) {
+            item.curadoria_ids = mergeCurationIds(item.curadoria_ids, overlay?.curadoria_ids, options.curationId);
+          }
+          storeEditorialOverlay(item, overlay, options);
           result.push(item);
           continue;
         }
@@ -208,7 +290,10 @@
         continue;
       }
       target.temas = mergeLabels(target.temas, overlay?.temas);
-      target.curadoria_ids = mergeCurationIds(target.curadoria_ids, overlay?.curadoria_ids, options.curationId);
+      if (options.associateByOverlay !== false) {
+        target.curadoria_ids = mergeCurationIds(target.curadoria_ids, overlay?.curadoria_ids, options.curationId);
+      }
+      storeEditorialOverlay(target, overlay, options);
       applyOverlayUrlMetadata(target, overlay, options.warn, `${options.label} ${identifier}`);
       applyOverlayImageMetadata(target, overlay, options.warn, `${options.label} ${identifier}`);
     }
@@ -257,6 +342,11 @@
 
     if (!isValidPayload(payload)) return result;
 
+    // Resolve membros somente nos catálogos canônicos, antes de qualquer fallback ou complemento.
+    for (const curation of payload.curadorias.filter(Boolean)) {
+      applyMembers(result, curation, warn);
+    }
+
     const permanentCuration = payload.curadorias.find(curation =>
       curation?.complementos?.servicos_apoio?.permanente === true
     );
@@ -275,17 +365,18 @@
       const promoted = isPromoted(curation, options.today || new Date());
       const overlays = curation.overlays || {};
       const complements = curation.complementos || {};
+      const overlayOptions = { curationId: curation.id, warn, associateByOverlay: !curation.membros };
       result.eventos = applyOverlayCollection(result.eventos, overlays.eventos, {
-        idField: 'id', label: 'evento', curationId: curation.id, warn
+        ...overlayOptions, idField: 'id', label: 'evento'
       });
       result.livros = applyOverlayCollection(result.livros, overlays.livros, {
-        idField: 'id', label: 'livro', curationId: curation.id, warn
+        ...overlayOptions, idField: 'id', label: 'livro', editorial: true
       });
       result.cursos = applyOverlayCollection(result.cursos, overlays.cursos, {
-        idField: 'id_fonte', label: 'curso', curationId: curation.id, warn
+        ...overlayOptions, idField: 'id_fonte', label: 'curso'
       });
       result.filmes = applyOverlayCollection(result.filmes, overlays.filmes, {
-        idField: 'id', label: 'filme', curationId: curation.id, warn
+        ...overlayOptions, idField: 'id', label: 'filme'
       });
       result.eventos = appendComplements(result.eventos, complements.eventos, {
         label: 'evento', curationId: curation.id, warn,
@@ -703,6 +794,7 @@
     createAgendaSupportCard,
     createPanelSupportSlide,
     dateKey,
+    effectiveItemForCuration,
     eventIsCurrent,
     isActive,
     isPromoted,

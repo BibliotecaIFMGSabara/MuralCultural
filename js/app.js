@@ -16,41 +16,6 @@
   const PANEL_SETTINGS_KEY = 'mural-cultural-configuracao-painel-v1';
   const PANEL_PROFILES_KEY = 'mural-cultural-perfis-painel-v1';
   const PANEL_PROFILE_ATTRIBUTE = 'panelProfile';
-  const BUILTIN_PANEL_PROFILES = Object.freeze({
-    'agosto-lilas-2026': {
-      nome: 'Agosto Lilás — curadoria do mês',
-      destaque: 'Sugestão do mês',
-      ativo_de: '2026-08-01',
-      ativo_ate: '2026-08-31',
-      configuracao: {
-        modules: {
-          events: true,
-          books: true,
-          courses: true,
-          contests: false,
-          films: true
-        },
-        theme: 'agosto lilas',
-        eventCities: [],
-        eventCategory: '',
-        eventProgram: '',
-        eventUnit: '',
-        bookCampuses: [],
-        bookAccess: '',
-        filmGenre: '',
-        filmRating: '',
-        filmDuration: '',
-        weights: {
-          events: 5,
-          books: 1,
-          courses: 1,
-          contests: 1,
-          films: 1
-        },
-        slideDuration: 0
-      }
-    }
-  });
   const AGENDA_BATCH_SIZE = 24;
   const AGENDA_CONTENT_LABELS = Object.freeze({
     events: { singular: 'evento', plural: 'eventos' },
@@ -1956,7 +1921,9 @@ function eventProgram(event) {
 
   function renderBookSlide(index) {
     clearTimeout(state.timer);
-    const book = state.events[index];
+    const book = siteCurationsContent.effectiveItemForCuration(
+      state.events[index], activeEditorialPanelProfileId()
+    );
     const slide = template.content.firstElementChild.cloneNode(true);
     buildSiteQr(slide);
     slide.classList.add('book-slide');
@@ -2552,11 +2519,12 @@ function eventProgram(event) {
     );
     const declared = Object.fromEntries(curations.map(curation => [curation.id, {
       ...curation.perfil_painel,
-      nome: curation.nome,
+      curation,
+      nome: curation.perfil_painel.nome || curation.nome,
       ativo_de: curation.ativo_de,
       ativo_ate: curation.ativo_ate
     }]));
-    return { ...BUILTIN_PANEL_PROFILES, ...profiles, ...declared };
+    return { ...profiles, ...declared };
   }
 
   function configuredPanelProfileEntries() {
@@ -2572,6 +2540,7 @@ function eventProgram(event) {
         badge: String(enriched ? (raw.destaque || '') : '').trim(),
         start: String(enriched ? (raw.ativo_de || '') : '').trim(),
         end: String(enriched ? (raw.ativo_ate || '') : '').trim(),
+        curation: enriched ? raw.curation : undefined,
         settings
       };
     });
@@ -2582,6 +2551,9 @@ function eventProgram(event) {
     const end = parseCalendarDate(profile.end, true);
     if (start && today < start) return false;
     if (end && today > end) return false;
+    if (profile.curation?.promocao_painel) {
+      return siteCurationsContent.isPromoted(profile.curation, today);
+    }
     return true;
   }
 
@@ -2605,7 +2577,10 @@ function eventProgram(event) {
 
   function selectedProfileSettings(value = '') {
     const { source, key } = parseProfileOptionValue(value);
-    if (source === 'editorial') return editorialProfileById(key)?.settings || null;
+    if (source === 'editorial') {
+      const profile = editorialProfileById(key);
+      return profile && editorialProfileIsVisible(profile) ? profile.settings : null;
+    }
     if (source === 'personal') return readPanelProfiles()[key] || null;
     return null;
   }
@@ -2616,7 +2591,7 @@ function eventProgram(event) {
 
   function activeEditorialPanelProfileId(settings = currentPanelSettings()) {
     return configuredPanelProfileEntries()
-      .find(profile => panelSettingsMatch(settings, profile.settings))?.id || '';
+      .find(profile => editorialProfileIsVisible(profile) && panelSettingsMatch(settings, profile.settings))?.id || '';
   }
 
   function syncActivePanelProfile(slide = state.filterOverlay) {
@@ -2641,6 +2616,7 @@ function eventProgram(event) {
     if (!requested) return null;
 
     for (const profile of configuredPanelProfileEntries()) {
+      if (!editorialProfileIsVisible(profile)) continue;
       if (panelProfileSlug(profile.id) === requested || panelProfileSlug(profile.name) === requested) {
         return profile.settings;
       }
@@ -3217,6 +3193,7 @@ function eventProgram(event) {
       id: String(curation?.id || '').trim(),
       name: String(curation?.nome || curation?.id || '').trim(),
       permanente: curation?.permanente === true,
+      membros: curation?.membros,
       theme: normalizeText(curation?.perfil_painel?.configuracao?.theme || '') ||
         normalizeText(curation?.tema || ''),
       start: String(curation?.ativo_de || '').trim(),
@@ -3448,6 +3425,7 @@ function eventProgram(event) {
         if (state.mobileBookAccess === 'both' && !(book.acesso_fisico && book.acesso_virtual)) return false;
         return true;
       })
+      .map(book => siteCurationsContent.effectiveItemForCuration(book, state.mobileCuration))
       .filter(book => agendaBookQueryMatches(book, query))
       .sort(agendaTitleCompare);
   }
