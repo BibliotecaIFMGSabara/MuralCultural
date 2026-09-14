@@ -1,0 +1,16 @@
+.git/
+.git/**
+
+.github/
+.github/**
+
+.gitignore
+.assetsignore
+wrangler.jsonc
+
+*.py
+__pycache__/
+*.pyc
+
+README*
+LICENSE*
