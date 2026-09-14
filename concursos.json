@@ -2,8 +2,8 @@
   "schema": 9,
   "fonte": "PCI Concursos",
   "url_catalogo": "https://www.pciconcursos.com.br/concursos/",
-  "coletado_em_utc": "2026-09-10T13:13:36.742637+00:00",
-  "total": 24,
+  "coletado_em_utc": "2026-09-14T02:17:02.755515+00:00",
+  "total": 23,
   "concursos": [
     {
       "titulo": "CaraguaPrev - Instituto de Previdência do Município de Caraguatatuba",
@@ -33,38 +33,6 @@
           "cargo": "Técnico em Informática",
           "vagas_texto": "1 vaga",
           "formacao": "Técnico em Informática",
-          "confianca": "alta"
-        }
-      ]
-    },
-    {
-      "titulo": "CONDERG - Consórcio de Desenvolvimento da Região de Governo de São João da Boa Vista",
-      "url": "https://www.pciconcursos.com.br/noticias/conderg-sp-abre-processo-seletivo-com-salarios-de-ate-6009",
-      "imagem": "https://cdn.pci.app.br/img/i/fde4e50e44cefe2876fa68ca7c7349bb.png",
-      "formacoes_compativeis": [
-        "Sistemas de Informação / Computação"
-      ],
-      "evidencias_formacao": [
-        {
-          "nome": "Sistemas de Informação / Computação",
-          "nivel": "superior",
-          "evidencia": "rmagem (cadastro de reserva) tecnico em radiologia (cadastro de reserva) telefonista (cadastro de reserva) terapeuta ocupacional (3 vagas) samu condutor de ambulancia (cadastro de reserva) radio operador (cadastro de reserva) tarm - telefonista auxiliar de regulacao (cadastro de reserva) tecnico em computacao (cadastro de reserva) sao joao da boa vista aplicador aba (cadastro de reserva) auxiliar de consultorio dentario (cadastro de reserva) auxiliar de servicos de farmacia (cadastro de reserva) auxiliar de servicos gerais (cadastro de reserva) cuidador de saude (cadastro de reserva) fonoaudiologo (1 va"
-        }
-      ],
-      "fonte": "PCI Concursos",
-      "status_manual": "revisar",
-      "uf": "SP",
-      "cidade": "",
-      "inscricoes_inicio_texto": "18 de agosto de 2026",
-      "inscricoes_fim_texto": "10 de setembro de 2026",
-      "inscricoes_texto": "18 de agosto de 2026 a 10 de setembro de 2026",
-      "remuneracao_faixa_texto": "R$ 1.621,00 a R$ 6.009,98",
-      "remuneracao_fonte": "noticia",
-      "cargos_compativeis": [
-        {
-          "cargo": "Técnico em Computação",
-          "vagas_texto": "Cadastro de Reserva",
-          "formacao": "Sistemas de Informação / Computação",
           "confianca": "alta"
         }
       ]
@@ -103,7 +71,7 @@
     },
     {
       "titulo": "SEPLAG - Secretaria de Estado de Planejamento e Gestão",
-      "url": "https://www.pciconcursos.com.br/noticias/seplag-rj-abre-concurso-com-60-vagas-para-cargos-de-nivel-superior",
+      "url": "https://www.pciconcursos.com.br/noticias/seplag-rj-publica-retificacoes-do-concurso-com-60-vagas-para-cargos-de-nivel-superior",
       "imagem": "https://cdn.pci.app.br/img/i/02a0902e96add5bdcef15c892a527dbb.png",
       "formacoes_compativeis": [
         "Sistemas de Informação / Computação"
@@ -172,38 +140,6 @@
       ]
     },
     {
-      "titulo": "DMAE - Departamento Municipal de Água e Esgoto de Uberlândia",
-      "url": "https://www.pciconcursos.com.br/noticias/dmae-de-uberlandia-mg-abre-concurso-publico-com-vagas-para-diversos-niveis-de-escolaridade",
-      "imagem": "https://cdn.pci.app.br/img/i/eed57af4c8ee7b02770437af8c9a81aa.png",
-      "formacoes_compativeis": [
-        "Técnico em Informática"
-      ],
-      "evidencias_formacao": [
-        {
-          "nome": "Técnico em Informática",
-          "nivel": "tecnico",
-          "evidencia": "ustrial (1 vaga) motorista (1 vaga) operador de bombas (1 vaga) operador de maquinas automotivas (1 vaga) soldador industrial (1 vaga) agente comercial (5 vagas) oficial administrativo (10 vagas) desenhista (1 vaga) fiscal de obras do saneamento (1 vaga) tecnico de operacoes de etas e etes (1 vaga) tecnico em informatica (1 vaga) tecnico em meio ambiente (1 vaga) assistente social (1 vaga) biologo (1 vaga) contador (1 vaga) economista (1 vaga) engenheiro ambiental (1 vaga) engenheiro civil (1 vaga) engenheiro eletricista (1 vaga) engenheiro de seguranca do trabalho (1 vaga) engenheiro quimico (1 vaga) psicologo (1 "
-        }
-      ],
-      "fonte": "PCI Concursos",
-      "status_manual": "revisar",
-      "uf": "MG",
-      "cidade": "",
-      "inscricoes_inicio_texto": "",
-      "inscricoes_fim_texto": "",
-      "inscricoes_texto": "",
-      "remuneracao_faixa_texto": "R$ 9.879,08",
-      "remuneracao_fonte": "catalogo",
-      "cargos_compativeis": [
-        {
-          "cargo": "Técnico em Informática",
-          "vagas_texto": "1 vaga",
-          "formacao": "Técnico em Informática",
-          "confianca": "alta"
-        }
-      ]
-    },
-    {
       "titulo": "Prefeitura de Contagem",
       "url": "https://www.pciconcursos.com.br/noticias/prefeitura-de-contagem-mg-abre-concurso-publico-com-salarios-de-ate-13305",
       "imagem": "https://cdn.pci.app.br/img/i/7de2c0dbeff437f4cd0052b4d16f8acf.png",
@@ -258,6 +194,38 @@
       "inscricoes_texto": "até 21 de outubro de 2026",
       "remuneracao_faixa_texto": "R$ 1.914,05 a R$ 4.527,60",
       "remuneracao_fonte": "noticia",
+      "cargos_compativeis": [
+        {
+          "cargo": "Técnico em Informática",
+          "vagas_texto": "1 vaga",
+          "formacao": "Técnico em Informática",
+          "confianca": "alta"
+        }
+      ]
+    },
+    {
+      "titulo": "DMAE - Departamento Municipal de Água e Esgoto de Uberlândia",
+      "url": "https://www.pciconcursos.com.br/noticias/dmae-de-uberlandia-mg-abre-concurso-publico-com-vagas-para-diversos-niveis-de-escolaridade",
+      "imagem": "https://cdn.pci.app.br/img/i/eed57af4c8ee7b02770437af8c9a81aa.png",
+      "formacoes_compativeis": [
+        "Técnico em Informática"
+      ],
+      "evidencias_formacao": [
+        {
+          "nome": "Técnico em Informática",
+          "nivel": "tecnico",
+          "evidencia": "ustrial (1 vaga) motorista (1 vaga) operador de bombas (1 vaga) operador de maquinas automotivas (1 vaga) soldador industrial (1 vaga) agente comercial (5 vagas) oficial administrativo (10 vagas) desenhista (1 vaga) fiscal de obras do saneamento (1 vaga) tecnico de operacoes de etas e etes (1 vaga) tecnico em informatica (1 vaga) tecnico em meio ambiente (1 vaga) assistente social (1 vaga) biologo (1 vaga) contador (1 vaga) economista (1 vaga) engenheiro ambiental (1 vaga) engenheiro civil (1 vaga) engenheiro eletricista (1 vaga) engenheiro de seguranca do trabalho (1 vaga) engenheiro quimico (1 vaga) psicologo (1 "
+        }
+      ],
+      "fonte": "PCI Concursos",
+      "status_manual": "revisar",
+      "uf": "MG",
+      "cidade": "",
+      "inscricoes_inicio_texto": "",
+      "inscricoes_fim_texto": "",
+      "inscricoes_texto": "",
+      "remuneracao_faixa_texto": "R$ 9.879,08",
+      "remuneracao_fonte": "catalogo",
       "cargos_compativeis": [
         {
           "cargo": "Técnico em Informática",
