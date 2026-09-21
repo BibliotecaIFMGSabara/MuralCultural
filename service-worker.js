@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'mural-cultural-v118-agenda-pesquisa-foco';
+const CACHE_VERSION = 'mural-cultural-v122-panel-text-and-brand-title';
 const CORE_CACHE = `${CACHE_VERSION}-core`;
 const DATA_CACHE = `${CACHE_VERSION}-data`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
@@ -8,25 +8,25 @@ const CURATION_IMAGE_PREFIX = '/imagens/curadorias/';
 
 const CORE_ASSETS = [
   './', './index.html',
-  './css/styles.css?v=71',
+  './css/styles.css?v=73',
   './css/eventos-manuais-ui.css?v=43',
   './css/concursos-mural.css?v=3',
   './css/temas-visuais.css?v=11',
   './css/painel-modos.css?v=2',
-  './css/painel-acoes-contextuais.css?v=1',
-  './js/tema-visual-boot.js?v=4',
+  './css/painel-acoes-contextuais.css?v=2',
+  './js/tema-visual-boot.js?v=5',
   './js/core/rotacao.js?v=1',
   './js/conteudos/cursos.js?v=3',
   './js/conteudos/concursos.js?v=2',
   './js/conteudos/filmes.js?v=6',
   './js/curadorias-site.js?v=11',
-  './js/app.js?v=100',
+  './js/app.js?v=101',
   './js/temas-visuais.js?v=12',
   './js/eventos-manuais-ui.js?v=44',
   './js/ios-install.js?v=2',
   './js/painel-navegacao-modos.js?v=1',
   './js/agenda-pesquisa-foco.js?v=1',
-  './js/painel-acoes-contextuais.js?v=2',
+  './js/painel-acoes-contextuais.js?v=3',
   './js/cursos-runtime-fix.js?v=2',
   './imagens/curadorias/agosto-lilas-banner.png',
   './manifest.webmanifest',

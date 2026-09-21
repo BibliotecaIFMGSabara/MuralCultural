@@ -56,10 +56,60 @@
   // as ações específicas dos conteúdos para as respectivas caixas de informação.
   const contextualStyles = document.createElement('link');
   contextualStyles.rel = 'stylesheet';
-  contextualStyles.href = 'css/painel-acoes-contextuais.css?v=1';
+  contextualStyles.href = 'css/painel-acoes-contextuais.css?v=2';
   document.head.appendChild(contextualStyles);
 
   const contextualActions = document.createElement('script');
-  contextualActions.src = 'js/painel-acoes-contextuais.js?v=2';
+  contextualActions.src = 'js/painel-acoes-contextuais.js?v=3';
   document.head.appendChild(contextualActions);
+
+  // Identidade e composição em avaliação no site de teste.
+  // Assets específicos vivem em imagens/marca/ e imagens/app-icons/, diretórios
+  // excluídos da promoção da interface para o site público.
+  try {
+    const isTestSite =
+      window.location.hostname === 'tiago-ps.github.io' &&
+      /^\/EventosGratuitosBHeSabara(?:\/|$)/.test(window.location.pathname);
+
+    if (isTestSite) {
+      document.documentElement.dataset.temSimUaiTest = '1';
+
+      document.title = 'Tem Sim, Uai';
+
+      const applicationName = document.querySelector('meta[name="application-name"]');
+      if (applicationName) applicationName.content = 'Tem Sim, Uai';
+
+      const appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+      if (appleTitle) appleTitle.content = 'Tem Sim, Uai';
+
+      const manifestLink = document.querySelector('link[rel="manifest"]');
+      if (manifestLink) {
+        manifestLink.href = 'imagens/app-icons/manifest-tem-sim-uai.webmanifest?v=2';
+      }
+
+      const favicon = document.querySelector('link[rel="icon"]');
+      if (favicon) {
+        favicon.type = 'image/png';
+        favicon.sizes = '32x32';
+        favicon.href = 'imagens/app-icons/favicon-tem-sim-uai-32.png?v=2';
+      }
+
+      const appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+      if (appleIcon) {
+        appleIcon.href = 'imagens/app-icons/apple-touch-icon-tem-sim-uai.png?v=2';
+      }
+
+      const testBrandLayout = document.createElement('link');
+      testBrandLayout.rel = 'stylesheet';
+      testBrandLayout.href = 'imagens/marca/tem-sim-uai-painel-teste.css?v=4';
+      document.head.appendChild(testBrandLayout);
+
+      const testPanelLayout = document.createElement('script');
+      testPanelLayout.src = 'imagens/marca/tem-sim-uai-painel-teste.js?v=2';
+      testPanelLayout.defer = true;
+      document.head.appendChild(testPanelLayout);
+    }
+  } catch (_) {
+    // Falha silenciosa: o site mantém o layout público normal.
+  }
 })();
